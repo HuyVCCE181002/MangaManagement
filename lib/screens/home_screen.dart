@@ -4,6 +4,7 @@ import '../services/services.dart';
 import '../widgets/manga_card.dart';
 import 'detail_screen.dart';
 import 'form_screen.dart';
+import 'genre_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -75,6 +76,24 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Quản lý thể loại',
+            icon: const Icon(Icons.category_outlined),
+            onPressed: () async {
+              await Navigator.push<void>(
+                context,
+                MaterialPageRoute(builder: (_) => const GenreListScreen()),
+              );
+              if (!mounted) return;
+              setState(() {
+                if (!MangaService.genres.contains(_selectedGenre)) {
+                  _selectedGenre = 'Tất cả';
+                }
+              });
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: const Color(0xFF6C5CE7),

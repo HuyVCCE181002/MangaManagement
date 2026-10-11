@@ -50,7 +50,10 @@ class _MangaFormScreenState extends State<MangaFormScreen> {
     );
     _descriptionController = TextEditingController(text: m?.description ?? '');
 
-    _selectedGenre = (m != null && m.genre.isNotEmpty) ? m.genre : MangaService.genres[1];
+    final availableGenres = MangaService.genres.where((g) => g != 'Tất cả').toList();
+    _selectedGenre = (m != null && m.genre.isNotEmpty)
+        ? m.genre
+        : (availableGenres.isNotEmpty ? availableGenres.first : '');
     _selectedStatus = m?.status ?? MangaService.statuses[0];
   }
 
@@ -97,6 +100,10 @@ class _MangaFormScreenState extends State<MangaFormScreen> {
   @override
   Widget build(BuildContext context) {
     final availableGenres = MangaService.genres.where((g) => g != 'Tất cả').toList();
+    if (_selectedGenre.isNotEmpty && !availableGenres.contains(_selectedGenre)) {
+      // Truyện cũ vẫn có thể giữ thể loại đã bị xóa khỏi danh mục.
+      availableGenres.add(_selectedGenre);
+    }
 
     return Scaffold(
       appBar: AppBar(

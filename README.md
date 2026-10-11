@@ -11,13 +11,17 @@ Dự án được gộp toàn bộ xử lý nghiệp vụ vào tầng Service, g
 ```
 lib/
 ├── models/
-│   └── manga.dart              # Model dữ liệu Manga (JSON serialization, helper methods)
+│   ├── manga.dart              # Model dữ liệu Manga (JSON serialization, helper methods)
+│   └── genre.dart              # Model dữ liệu Genre
 ├── services/
-│   └── manga_service.dart      # Xử lý toàn bộ logic CRUD, tìm kiếm, lưu SharedPreferences
+│   ├── services.dart           # CRUD truyện, tìm kiếm và lưu SharedPreferences
+│   └── genre_service.dart      # Mock API CRUD thể loại (dữ liệu trong bộ nhớ)
 ├── screens/
-│   ├── home_screen.dart        # Màn hình chính (Danh sách truyện, Tìm kiếm, Tab Yêu thích)
-│   ├── manga_detail_screen.dart # Xem chi tiết, cập nhật tiến độ đọc, sửa/xóa
-│   └── manga_form_screen.dart   # Form thêm mới / chỉnh sửa truyện
+│   ├── home_screen.dart        # Danh sách truyện, tìm kiếm, yêu thích và lối vào quản lý thể loại
+│   ├── detail_screen.dart      # Xem chi tiết, cập nhật tiến độ đọc, sửa/xóa truyện
+│   ├── form_screen.dart        # Form thêm mới / chỉnh sửa truyện
+│   ├── genre_list_screen.dart  # Xem, cập nhật và xóa thể loại
+│   └── genre_form_screen.dart  # Thêm mới / cập nhật thể loại
 ├── widgets/
 │   └── manga_card.dart         # Card hiển thị truyện
 └── main.dart                   # Điểm khởi chạy ứng dụng (Theme & MaterialApp)
@@ -39,6 +43,10 @@ lib/
    - Nút thả tim yêu thích, gom vào Tab riêng biệt.
 4. **Lưu trữ dữ liệu Offline**:
    - Tự động lưu vào máy bằng `SharedPreferences`. Tắt app mở lại vẫn giữ nguyên dữ liệu.
+5. **Quản lý thể loại**:
+   - Xem danh sách, thêm, cập nhật và xóa thể loại qua mock API trong Dart.
+   - Dữ liệu thể loại mẫu được khởi tạo trong `GenreService` và đặt lại khi khởi động lại ứng dụng.
+   - Actor theo backlog UC-03.1–UC-03.4: **Staff**. Dự án hiện chưa có chức năng đăng nhập/phân quyền.
 
 ---
 

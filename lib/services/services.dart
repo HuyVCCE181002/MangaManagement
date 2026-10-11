@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/genre.dart';
 import '../models/manga.dart';
+import 'genre_service.dart';
 
 class MangaService {
   static const String _storageKey = 'manga_vault_data_v2';
@@ -9,16 +11,10 @@ class MangaService {
   static final MangaService instance = MangaService._internal();
   MangaService._internal();
 
-  static const List<String> genres = [
-    'Tất cả',
-    'Action',
-    'Adventure',
-    'Fantasy',
-    'Comedy',
-    'Romance',
-    'Supernatural',
-    'Sports',
-  ];
+  static List<String> get genres => [
+        'Tất cả',
+        ...GenreService.instance.genres.map((Genre genre) => genre.name),
+      ];
 
   static const List<String> statuses = [
     'Ongoing',
