@@ -1,8 +1,16 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
+import 'screens/login_screen.dart';
+import 'services/auth_service.dart';
+import 'services/theme_service.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Khởi tạo AuthService và ThemeService
+  await Future.wait([
+    AuthService.instance.init(),
+    ThemeService.instance.init(),
+  ]);
   runApp(const MyApp());
 }
 
@@ -11,24 +19,23 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Manga Vault',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF12141D),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF181A24),
-          elevation: 0,
-          centerTitle: false,
-        ),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF6C5CE7),
-          surface: Color(0xFF1E212D),
-        ),
-      ),
-      home: const HomeScreen(),
+    final auth = AuthService.instance;
+    final theme = ThemeService.instance;
+
+    return ListenableBuilder(
+      listenable: theme,
+      builder: (context, _) {
+        return MaterialApp(
+          title: 'Manga Vault',
+          debugShowCheckedModeBanner: false,
+          themeMode: theme.themeMode,
+          theme: ThemeService.lightTheme,
+          darkTheme: ThemeService.darkTheme,
+          // Nếu đã có tài khoản đăng nhập từ trước -> vào thẳng HomeScreen
+          // Nếu chưa đăng nhập -> mở LoginScreen (có hỗ trợ duyệt Khách / Guest)
+          home: auth.isLoggedIn ? const HomeScreen() : const LoginScreen(),
+        );
+      },
     );
   }
 }
