@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/database_helper.dart';
 import 'services/theme_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Khởi tạo Database SQLite trước
+  await DatabaseHelper.instance.database;
+
   // Khởi tạo AuthService và ThemeService
   await Future.wait([
     AuthService.instance.init(),

@@ -81,13 +81,29 @@ class AppUser {
   }
 
   factory AppUser.fromJson(Map<String, dynamic> json) {
+    return AppUser.fromMap(json);
+  }
+
+  /// Chuyển đổi sang Map để lưu vào bảng SQLite
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'username': username,
+      'display_name': displayName,
+      'password': password,
+      'role': role.name,
+    };
+  }
+
+  /// Khởi tạo đối tượng từ SQLite Map hoặc JSON Map
+  factory AppUser.fromMap(Map<String, dynamic> map) {
     return AppUser(
-      id: json['id'] as String? ?? '',
-      username: json['username'] as String? ?? '',
-      displayName: json['displayName'] as String? ?? '',
-      password: json['password'] as String? ?? '',
+      id: map['id'] as String? ?? '',
+      username: map['username'] as String? ?? '',
+      displayName: (map['display_name'] ?? map['displayName']) as String? ?? '',
+      password: map['password'] as String? ?? '',
       role: UserRole.values.firstWhere(
-        (r) => r.name == json['role'],
+        (r) => r.name == map['role'],
         orElse: () => UserRole.reader,
       ),
     );

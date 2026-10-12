@@ -1,12 +1,11 @@
-import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/user.dart';
+import 'database_helper.dart';
 
 class AuthService extends ChangeNotifier {
-  static const String _usersKey = 'manga_vault_users_list_v1';
   static const String _currentSessionKey = 'manga_vault_current_session_v1';
 
   static final AuthService instance = AuthService._internal();
@@ -19,44 +18,12 @@ class AuthService extends ChangeNotifier {
 
   List<AppUser> _allUsers = [];
 
-  // Danh sách tài khoản mặc định để thử nghiệm
-  final List<AppUser> _seedUsers = const [
-    AppUser(
-      id: 'admin_1',
-      username: 'admin',
-      displayName: 'Quản Trị Viên (Admin)',
-      password: 'admin123',
-      role: UserRole.admin,
-    ),
-    AppUser(
-      id: 'staff_1',
-      username: 'staff',
-      displayName: 'Biên Tập Viên (Staff)',
-      password: 'staff123',
-      role: UserRole.staff,
-    ),
-    AppUser(
-      id: 'reader_1',
-      username: 'reader',
-      displayName: 'Độc Giả VIP (Reader)',
-      password: 'reader123',
-      role: UserRole.reader,
-    ),
-  ];
-
-  /// Khởi tạo và nạp dữ liệu phiên đăng nhập
+  /// Khởi tạo và nạp dữ liệu phiên đăng nhập từ SQLite & SharedPreferences
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1. Nạp danh sách người dùng
-    final usersJson = prefs.getString(_usersKey);
-    if (usersJson != null && usersJson.isNotEmpty) {
-      final List<dynamic> decoded = jsonDecode(usersJson);
-      _allUsers = decoded.map((e) => AppUser.fromJson(e as Map<String, dynamic>)).toList();
-    } else {
-      _allUsers = List.from(_seedUsers);
-      await _saveUsersToDisk();
-    }
+    // 1. Nạp danh sách người dùng từ SQLite
+    _allUsers = await DatabaseHelper.instance.getAllUsers();
 
     // 2. Nạp phiên đăng nhập trước đó (nếu có)
     final savedUserId = prefs.getString(_currentSessionKey);
@@ -138,8 +105,9 @@ class AuthService extends ChangeNotifier {
       role: UserRole.reader, // Mặc định đăng ký mới là Reader
     );
 
+    // Lưu vào SQLite
+    await DatabaseHelper.instance.insertUser(newUser);
     _allUsers.add(newUser);
-    await _saveUsersToDisk();
 
     // Tự động đăng nhập luôn sau khi đăng ký
     _currentUser = newUser;
@@ -176,6 +144,8 @@ class AuthService extends ChangeNotifier {
     final index = _allUsers.indexWhere((u) => u.id == userId);
     if (index == -1) return false;
 
+    await DatabaseHelper.instance.updateUserRole(userId, newRole);
+
     final updated = _allUsers[index].copyWith(role: newRole);
     _allUsers[index] = updated;
 
@@ -183,7 +153,6 @@ class AuthService extends ChangeNotifier {
       _currentUser = updated;
     }
 
-    await _saveUsersToDisk();
     notifyListeners();
     return true;
   }
@@ -194,8 +163,8 @@ class AuthService extends ChangeNotifier {
       return (success: false, message: 'Không thể tự xóa tài khoản đang đăng nhập!');
     }
 
+    await DatabaseHelper.instance.deleteUser(userId);
     _allUsers.removeWhere((u) => u.id == userId);
-    await _saveUsersToDisk();
     notifyListeners();
     return (success: true, message: 'Đã xóa người dùng thành công.');
   }
@@ -270,15 +239,15 @@ class AuthService extends ChangeNotifier {
       return (success: false, message: 'Không tìm thấy tài khoản tương ứng.');
     }
 
-    // Cập nhật mật khẩu mới
+    // Cập nhật mật khẩu trong SQLite
+    await DatabaseHelper.instance.updateUserPassword(cleanUsername, cleanNewPassword);
+
     final updatedUser = _allUsers[index].copyWith(password: cleanNewPassword);
     _allUsers[index] = updatedUser;
 
     if (_currentUser.username.toLowerCase() == cleanUsername) {
       _currentUser = updatedUser;
     }
-
-    await _saveUsersToDisk();
 
     // Dọn dẹp phiên reset sau khi hoàn tất
     _resetUsername = null;
@@ -287,12 +256,5 @@ class AuthService extends ChangeNotifier {
 
     notifyListeners();
     return (success: true, message: 'Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới.');
-  }
-
-  /// Lưu danh sách người dùng vào SharedPreferences
-  Future<void> _saveUsersToDisk() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonStr = jsonEncode(_allUsers.map((u) => u.toJson()).toList());
-    await prefs.setString(_usersKey, jsonStr);
   }
 }

@@ -1,44 +1,79 @@
 # Manga Vault - Ứng Dụng Quản Lý Truyện Tranh (Flutter & Dart)
 
-Ứng dụng quản lý truyện tranh di động nhỏ gọn, dễ hiểu, viết bằng **Flutter & Dart**, sử dụng kiến trúc phân lớp cơ bản (Model - Service - Screen) không dùng thêm thư viện State Management cồng kềnh, lưu trữ offline bằng **SharedPreferences**.
+Ứng dụng quản lý truyện tranh di động viết bằng **Flutter & Dart**, sử dụng kiến trúc phân lớp cơ bản (Model - Service - Screen), lưu trữ CSDL quan hệ Offline chuẩn mực bằng **SQLite (`sqflite`)**, hỗ trợ đa nền tảng (Android, iOS, Windows).
 
 ---
 
-## 📂 Cấu Trúc Thư Mục Tinh Gọn (4 Thư Mục Cốt Lõi)
-
-Dự án được gộp toàn bộ xử lý nghiệp vụ vào tầng Service, giao diện cập nhật trực quan bằng `setState`:
+## 📂 Cấu Trúc Thư Mục Cốt Lõi
 
 ```
 lib/
 ├── models/
-│   └── manga.dart              # Model dữ liệu Manga (JSON serialization, helper methods)
+│   ├── manga.dart              # Model dữ liệu Manga (Mapping SQLite Map, validation)
+│   └── user.dart               # Model Người dùng & Phân quyền (Admin, Staff, Reader, Guest)
 ├── services/
-│   └── manga_service.dart      # Xử lý toàn bộ logic CRUD, tìm kiếm, lưu SharedPreferences
+│   ├── database_helper.dart    # SQLite Database (Quản lý kết nối, tạo bảng, CRUD raw/query, seed data)
+│   ├── services.dart           # MangaService: Xử lý CRUD truyện tương tác với SQLite
+│   ├── auth_service.dart       # AuthService: Đăng ký/đăng nhập/phân quyền lưu vào SQLite
+│   └── theme_service.dart      # Quản lý giao diện Sáng/Tối
 ├── screens/
 │   ├── home_screen.dart        # Màn hình chính (Danh sách truyện, Tìm kiếm, Tab Yêu thích)
-│   ├── manga_detail_screen.dart # Xem chi tiết, cập nhật tiến độ đọc, sửa/xóa
-│   └── manga_form_screen.dart   # Form thêm mới / chỉnh sửa truyện
+│   ├── detail_screen.dart      # Xem chi tiết, cập nhật tiến độ đọc, sửa/xóa
+│   ├── form_screen.dart        # Form thêm mới / chỉnh sửa truyện
+│   ├── login_screen.dart       # Đăng nhập & chế độ Khách
+│   ├── register_screen.dart    # Đăng ký tài khoản mới
+│   ├── forgot_password_screen.dart # Quên mật khẩu qua OTP
+│   └── user_management_screen.dart # Quản trị viên phân quyền tài khoản
 ├── widgets/
 │   └── manga_card.dart         # Card hiển thị truyện
-└── main.dart                   # Điểm khởi chạy ứng dụng (Theme & MaterialApp)
+└── main.dart                   # Điểm khởi chạy ứng dụng (Khởi tạo SQLite DB & Theme)
 ```
+
+---
+
+## 🗄️ Cấu Trúc Cơ Sở Dữ Liệu SQLite (`manga_vault.db`)
+
+1. **Bảng `mangas`**:
+   - `id` (TEXT PRIMARY KEY)
+   - `title` (TEXT NOT NULL)
+   - `author` (TEXT NOT NULL)
+   - `description` (TEXT)
+   - `cover_url` (TEXT NOT NULL)
+   - `genre` (TEXT NOT NULL)
+   - `status` (TEXT NOT NULL)
+   - `total_chapters` (INTEGER)
+   - `current_chapter` (INTEGER)
+   - `rating` (REAL)
+   - `is_favorite` (INTEGER - 0/1)
+
+2. **Bảng `users`**:
+   - `id` (TEXT PRIMARY KEY)
+   - `username` (TEXT UNIQUE NOT NULL)
+   - `display_name` (TEXT NOT NULL)
+   - `password` (TEXT NOT NULL)
+   - `role` (TEXT NOT NULL: 'admin' | 'staff' | 'reader')
 
 ---
 
 ## ⚡ Các Tính Năng Chính
 
-1. **Quản lý CRUD truyện tranh**:
+1. **Cơ sở dữ liệu SQLite chuẩn đồ án PRM393**:
+   - Tự động nạp dữ liệu mẫu ban đầu (Seed data: One Piece, Solo Leveling, Admin/Staff/Reader accounts).
+   - Truy vấn CSDL chuẩn CRUD, lưu trữ vĩnh viễn trên thiết bị.
+   - Hỗ trợ chạy mượt trên cả Android emulator, thiết bị thật và Windows Desktop (`sqflite_common_ffi`).
+2. **Quản lý CRUD truyện tranh**:
    - Thêm truyện mới (kèm validation tên, tác giả, số chapter, điểm số).
-   - Xem chi tiết và cập nhật số chapter đang đọc (+1 / -1 chap tiện lợi).
+   - Xem chi tiết và cập nhật số chapter đang đọc.
    - Chỉnh sửa thông tin truyện tranh.
-   - Xóa truyện (có popup xác nhận an toàn).
-2. **Tìm kiếm & Bộ lọc tức thì**:
+   - Xóa truyện (phân quyền cho Admin).
+3. **Phân quyền người dùng (RBAC)**:
+   - Admin: Toàn quyền thêm, sửa, xóa truyện và quản lý tài khoản/phân quyền user.
+   - Staff: Thêm và chỉnh sửa nội dung truyện.
+   - Reader: Đọc truyện, theo dõi tiến độ, lưu yêu thích.
+   - Guest: Xem danh mục truyện ở chế độ đọc thử.
+4. **Tìm kiếm & Bộ lọc tức thì**:
    - Tìm kiếm nhanh theo tên truyện hoặc tác giả.
    - Lọc theo thể loại dạng chip ngang (Action, Adventure, Fantasy, Comedy...).
-3. **Danh sách yêu thích (Favorites)**:
-   - Nút thả tim yêu thích, gom vào Tab riêng biệt.
-4. **Lưu trữ dữ liệu Offline**:
-   - Tự động lưu vào máy bằng `SharedPreferences`. Tắt app mở lại vẫn giữ nguyên dữ liệu.
 
 ---
 
