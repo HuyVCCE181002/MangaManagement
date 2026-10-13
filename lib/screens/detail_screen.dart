@@ -422,7 +422,22 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               },
             ),
 
-          // Nút Xóa: Chỉ dành riêng cho Admin
+          // Staff có thể ẩn/hiện khỏi danh sách; xóa vĩnh viễn vẫn chỉ dành cho Admin.
+          if (currentUser.role.canEditManga)
+            IconButton(
+              tooltip: manga.isHidden ? 'Hiện truyện' : 'Ẩn truyện',
+              icon: Icon(manga.isHidden ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+              onPressed: () async {
+                await _service.setMangaHidden(manga.id, !manga.isHidden);
+                _loadManga();
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(manga.isHidden ? 'Đã hiện truyện.' : 'Đã ẩn truyện khỏi độc giả.')),
+                );
+              },
+            ),
+
+          // Xóa vĩnh viễn: Chỉ dành riêng cho Admin.
           if (currentUser.role.canDeleteManga)
             IconButton(
               tooltip: 'Xóa truyện (Chỉ Admin)',

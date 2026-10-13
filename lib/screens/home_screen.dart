@@ -6,6 +6,7 @@ import '../services/auth_guard.dart';
 import '../services/auth_service.dart';
 import '../services/database_helper.dart';
 import '../services/services.dart';
+import '../services/genre_service.dart';
 import '../services/theme_service.dart';
 import '../services/wallet_service.dart';
 import '../widgets/manga_card.dart';
@@ -16,6 +17,7 @@ import 'login_screen.dart';
 import 'user_management_screen.dart';
 import 'wallet_screen.dart';
 import 'coin_package_management_screen.dart';
+import 'genre_management_screen.dart';
 import 'profile_screen.dart';
 import '../services/daily_check_in_service.dart';
 import '../widgets/daily_check_in_dialog.dart';
@@ -38,6 +40,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final TextEditingController _searchController = TextEditingController();
 
   List<Manga> _allMangas = [];
+  List<String> _genreNames = List<String>.from(MangaService.genres);
   List<BookmarkDetail> _userBookmarks = [];
   String _searchQuery = '';
   String _selectedGenre = 'Tất cả';
@@ -96,10 +99,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Future<void> _loadMangas() async {
     setState(() => _isLoading = true);
     final data = await _service.getMangas();
+    final genres = await GenreService.instance.getGenres();
     await _loadBookmarks();
     if (!mounted) return;
     setState(() {
       _allMangas = data;
+      _genreNames = ['Tất cả', ...genres.map((genre) => genre.name)];
+      if (!_genreNames.contains(_selectedGenre)) _selectedGenre = 'Tất cả';
       _isLoading = false;
     });
   }
@@ -125,7 +131,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 //   }
 
   List<Manga> get _filteredMangas {
+    final canSeeHidden = _auth.currentUser.role.canDeleteManga || _auth.currentUser.role.canEditManga;
     return _allMangas.where((m) {
+      if (m.isHidden && !canSeeHidden) return false;
       final matchesSearch = m.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           m.author.toLowerCase().contains(_searchQuery.toLowerCase());
       final matchesGenre = _selectedGenre == 'Tất cả' || m.genre == _selectedGenre;
@@ -490,6 +498,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
         ),
         actions: [
+          if (currentUser.role.canEditManga)
+            IconButton(
+              tooltip: 'Quản lý thể loại',
+              icon: const Icon(Icons.category_outlined),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const GenreManagementScreen()),
+                );
+                _loadMangas();
+              },
+            ),
           // Nút chuyển đổi Dark Mode / Light Mode
           IconButton(
             tooltip: isDark ? 'Chuyển sang Chế độ Sáng (Light)' : 'Chuyển sang Chế độ Tối (Dark)',
@@ -753,9 +773,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: MangaService.genres.length,
+                  itemCount: _genreNames.length,
                   itemBuilder: (context, index) {
-                    final genre = MangaService.genres[index];
+                    final genre = _genreNames[index];
                     final isSelected = _selectedGenre == genre;
                     return Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4),

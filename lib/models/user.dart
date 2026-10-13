@@ -146,4 +146,3 @@ class AppUser {
     avatarUrl: null,
   );
 }
-

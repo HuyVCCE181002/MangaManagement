@@ -10,6 +10,7 @@ class Manga {
   final int currentChapter; // Tiến độ đọc hiện tại
   final double rating; // Điểm 0.0 - 10.0
   final bool isFavorite;
+  final bool isHidden;
 
   Manga({
     required this.id,
@@ -23,6 +24,7 @@ class Manga {
     this.currentChapter = 0,
     required this.rating,
     this.isFavorite = false,
+    this.isHidden = false,
   });
 
   double get progressPercentage {
@@ -42,6 +44,7 @@ class Manga {
     int? currentChapter,
     double? rating,
     bool? isFavorite,
+    bool? isHidden,
   }) {
     return Manga(
       id: id ?? this.id,
@@ -55,6 +58,7 @@ class Manga {
       currentChapter: currentChapter ?? this.currentChapter,
       rating: rating ?? this.rating,
       isFavorite: isFavorite ?? this.isFavorite,
+      isHidden: isHidden ?? this.isHidden,
     );
   }
 
@@ -75,6 +79,7 @@ class Manga {
       'currentChapter': currentChapter,
       'rating': rating,
       'isFavorite': isFavorite,
+      'isHidden': isHidden,
     };
   }
 
@@ -92,6 +97,7 @@ class Manga {
       'current_chapter': currentChapter,
       'rating': rating,
       'is_favorite': isFavorite ? 1 : 0,
+      'is_hidden': isHidden ? 1 : 0,
     };
   }
 
@@ -109,6 +115,7 @@ class Manga {
       currentChapter: (map['current_chapter'] ?? map['currentChapter'] as num?)?.toInt() ?? 0,
       rating: (map['rating'] as num?)?.toDouble() ?? 8.0,
       isFavorite: (map['is_favorite'] == 1 || map['is_favorite'] == true || map['isFavorite'] == 1 || map['isFavorite'] == true),
+      isHidden: (map['is_hidden'] == 1 || map['is_hidden'] == true || map['isHidden'] == 1 || map['isHidden'] == true),
     );
   }
 }

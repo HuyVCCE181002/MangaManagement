@@ -1,4 +1,5 @@
 import '../models/chapter.dart';
+import 'backend_api_service.dart';
 import 'database_helper.dart';
 
 /// Dịch vụ quản lý nghiệp vụ và truy xuất dữ liệu Chapter (Clean Architecture Service)
@@ -18,6 +19,11 @@ class ChapterService {
     String mangaId, {
     bool forceRefresh = false,
   }) async {
+    final remote = await BackendApiService.instance.getChapters(mangaId);
+    if (remote != null) {
+      _mangaChaptersCache[mangaId] = remote;
+      return List.from(remote);
+    }
     if (_mangaChaptersCache.containsKey(mangaId) && !forceRefresh) {
       return List.from(_mangaChaptersCache[mangaId]!);
     }
