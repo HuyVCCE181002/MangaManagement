@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../models/bookmark.dart';
 import '../models/chapter.dart';
 import '../models/manga.dart';
 import '../models/user.dart';
@@ -15,6 +16,7 @@ class DatabaseHelper {
   static const String tableMangas = 'mangas';
   static const String tableChapters = 'chapters';
   static const String tableUserPurchasedChapters = 'user_purchased_chapters';
+  static const String tableBookmarks = 'bookmarks';
 
   // Singleton instance
   static final DatabaseHelper instance = DatabaseHelper._internal();
@@ -60,6 +62,20 @@ class DatabaseHelper {
         purchased_at TEXT NOT NULL,
         PRIMARY KEY (user_id, chapter_id),
         FOREIGN KEY (user_id) REFERENCES $tableUsers (id) ON DELETE CASCADE,
+        FOREIGN KEY (chapter_id) REFERENCES $tableChapters (id) ON DELETE CASCADE
+      )
+    ''');
+
+    // Đảm bảo bảng bookmarks luôn tồn tại
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableBookmarks (
+        user_id TEXT NOT NULL,
+        manga_id TEXT NOT NULL,
+        chapter_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, manga_id),
+        FOREIGN KEY (user_id) REFERENCES $tableUsers (id) ON DELETE CASCADE,
+        FOREIGN KEY (manga_id) REFERENCES $tableMangas (id) ON DELETE CASCADE,
         FOREIGN KEY (chapter_id) REFERENCES $tableChapters (id) ON DELETE CASCADE
       )
     ''');
@@ -136,7 +152,21 @@ class DatabaseHelper {
       )
     ''');
 
-    // 5. Nạp dữ liệu mẫu ban đầu (Seed data)
+    // 5. Tạo bảng Bookmarks
+    await db.execute('''
+      CREATE TABLE $tableBookmarks (
+        user_id TEXT NOT NULL,
+        manga_id TEXT NOT NULL,
+        chapter_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, manga_id),
+        FOREIGN KEY (user_id) REFERENCES $tableUsers (id) ON DELETE CASCADE,
+        FOREIGN KEY (manga_id) REFERENCES $tableMangas (id) ON DELETE CASCADE,
+        FOREIGN KEY (chapter_id) REFERENCES $tableChapters (id) ON DELETE CASCADE
+      )
+    ''');
+
+    // 6. Nạp dữ liệu mẫu ban đầu (Seed data)
     await _seedInitialData(db);
   }
 
@@ -701,6 +731,99 @@ class DatabaseHelper {
         'purchased_at': DateTime.now().toIso8601String(),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  // ===================== BOOKMARKS =====================
+
+  /// Lấy bookmark hiện tại của user cho một truyện (nếu có)
+  Future<Bookmark?> getBookmark(String userId, String mangaId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      tableBookmarks,
+      where: 'user_id = ? AND manga_id = ?',
+      whereArgs: [userId, mangaId],
+      limit: 1,
+    );
+    if (maps.isNotEmpty) {
+      return Bookmark.fromMap(maps.first);
+    }
+    return null;
+  }
+
+  /// Toggle (Tạo / Cập nhật / Xoá) bookmark
+  Future<void> toggleBookmark(String userId, String mangaId, String chapterId) async {
+    final db = await database;
+    final existingBookmark = await getBookmark(userId, mangaId);
+
+    if (existingBookmark == null) {
+      // Chưa có -> Tạo mới
+      await db.insert(
+        tableBookmarks,
+        Bookmark(
+          userId: userId,
+          mangaId: mangaId,
+          chapterId: chapterId,
+          createdAt: DateTime.now(),
+        ).toMap(),
+      );
+    } else if (existingBookmark.chapterId == chapterId) {
+      // Đã có ở đúng chương này -> Xoá
+      await deleteBookmark(userId, mangaId);
+    } else {
+      // Đã có ở chương khác -> Cập nhật
+      await db.update(
+        tableBookmarks,
+        {
+          'chapter_id': chapterId,
+          'created_at': DateTime.now().toIso8601String(),
+        },
+        where: 'user_id = ? AND manga_id = ?',
+        whereArgs: [userId, mangaId],
+      );
+    }
+  }
+
+  /// Lấy toàn bộ danh sách bookmark của user (JOIN bảng mangas và chapters)
+  Future<List<BookmarkDetail>> getUserBookmarks(String userId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.rawQuery('''
+      SELECT
+        b.user_id, b.manga_id, b.chapter_id, b.created_at,
+        m.title AS manga_title, m.cover_url,
+        c.title AS chapter_title, c.chapter_number
+      FROM $tableBookmarks b
+      JOIN $tableMangas m ON b.manga_id = m.id
+      JOIN $tableChapters c ON b.chapter_id = c.id
+      WHERE b.user_id = ?
+      ORDER BY b.created_at DESC
+    ''', [userId]);
+
+    return maps.map((map) {
+      final bookmark = Bookmark(
+        userId: map['user_id'] as String,
+        mangaId: map['manga_id'] as String,
+        chapterId: map['chapter_id'] as String,
+        createdAt: DateTime.parse(map['created_at'] as String),
+      );
+
+      return BookmarkDetail(
+        bookmark: bookmark,
+        mangaTitle: map['manga_title'] as String,
+        coverUrl: map['cover_url'] as String,
+        chapterTitle: map['chapter_title'] as String,
+        chapterNumber: map['chapter_number'] as int,
+      );
+    }).toList();
+  }
+
+  /// Xóa bookmark theo userId và mangaId
+  Future<int> deleteBookmark(String userId, String mangaId) async {
+    final db = await database;
+    return await db.delete(
+      tableBookmarks,
+      where: 'user_id = ? AND manga_id = ?',
+      whereArgs: [userId, mangaId],
     );
   }
 }
