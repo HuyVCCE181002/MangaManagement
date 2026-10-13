@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../models/manga.dart';
 import '../services/auth_service.dart';
 import '../services/services.dart';
+import '../services/genre_service.dart';
 
 class MangaFormScreen extends StatefulWidget {
   final Manga? initialManga;
@@ -26,6 +27,7 @@ class _MangaFormScreenState extends State<MangaFormScreen> {
 
   late String _selectedGenre;
   late String _selectedStatus;
+  List<String> _availableGenres = List<String>.from(MangaService.genres.where((g) => g != 'Tất cả'));
 
   bool get _isEditing => widget.initialManga != null;
 
@@ -53,6 +55,16 @@ class _MangaFormScreenState extends State<MangaFormScreen> {
 
     _selectedGenre = (m != null && m.genre.isNotEmpty) ? m.genre : MangaService.genres[1];
     _selectedStatus = m?.status ?? MangaService.statuses[0];
+    _loadGenres();
+  }
+
+  Future<void> _loadGenres() async {
+    final genres = await GenreService.instance.getGenres();
+    if (!mounted || genres.isEmpty) return;
+    setState(() {
+      _availableGenres = genres.map((genre) => genre.name).toList();
+      if (!_availableGenres.contains(_selectedGenre)) _selectedGenre = _availableGenres.first;
+    });
   }
 
   @override
@@ -93,6 +105,7 @@ class _MangaFormScreenState extends State<MangaFormScreen> {
       rating: double.parse(_ratingController.text.trim()),
       description: _descriptionController.text.trim(),
       isFavorite: widget.initialManga?.isFavorite ?? false,
+      isHidden: widget.initialManga?.isHidden ?? false,
     );
 
     if (_isEditing) {
@@ -109,7 +122,7 @@ class _MangaFormScreenState extends State<MangaFormScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final availableGenres = MangaService.genres.where((g) => g != 'Tất cả').toList();
+    final availableGenres = _availableGenres;
 
     return Scaffold(
       appBar: AppBar(
