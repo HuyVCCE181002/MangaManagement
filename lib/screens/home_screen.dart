@@ -20,6 +20,7 @@ import 'user_management_screen.dart';
 import 'wallet_screen.dart';
 import 'coin_package_management_screen.dart';
 import 'genre_management_screen.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -414,10 +415,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
 
                 // Avatar & Vai trò
-                CircleAvatar(
-                  radius: 34,
-                  backgroundColor: user.role.color.withValues(alpha: 0.18),
-                  child: Icon(user.role.icon, size: 36, color: user.role.color),
+                GestureDetector(
+                  onTap: () {
+                    if (!user.isGuest) {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                      );
+                    }
+                  },
+                  child: Container(
+                    width: 76,
+                    height: 76,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: user.role.color, width: 2),
+                    ),
+                    padding: const EdgeInsets.all(2),
+                    child: ClipOval(
+                      child: (user.avatarUrl != null && user.avatarUrl!.isNotEmpty)
+                          ? Image.network(
+                              user.avatarUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => CircleAvatar(
+                                backgroundColor: user.role.color.withValues(alpha: 0.18),
+                                child: Icon(user.role.icon, size: 36, color: user.role.color),
+                              ),
+                            )
+                          : CircleAvatar(
+                              backgroundColor: user.role.color.withValues(alpha: 0.18),
+                              child: Icon(user.role.icon, size: 36, color: user.role.color),
+                            ),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -468,6 +499,28 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ),
                 ),
                 const SizedBox(height: 18),
+
+                // Nút Hồ Sơ Của Tôi (My Profile)
+                if (!user.isGuest) ...[
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6C5CE7),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size.fromHeight(44),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.person_pin_rounded, size: 20),
+                    label: const Text('Hồ Sơ Của Tôi (My Profile)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ],
 
                 // Các nút hành động
                 if (user.role.canManageCoinPackages) ...[
@@ -735,8 +788,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ),
                       child: Row(
                         children: [
-                          Icon(currentUser.role.icon, size: 16, color: currentUser.role.color),
-                          const SizedBox(width: 6),
+                          if (currentUser.avatarUrl != null && currentUser.avatarUrl!.isNotEmpty) ...[
+                            ClipOval(
+                              child: Image.network(
+                                currentUser.avatarUrl!,
+                                width: 18,
+                                height: 18,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Icon(currentUser.role.icon, size: 16, color: currentUser.role.color),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ] else ...[
+                            Icon(currentUser.role.icon, size: 16, color: currentUser.role.color),
+                            const SizedBox(width: 6),
+                          ],
                           Text(
                             currentUser.role.label,
                             style: TextStyle(

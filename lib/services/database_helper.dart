@@ -19,7 +19,8 @@ class DatabaseHelper {
   static const String tableUserPurchasedChapters = 'user_purchased_chapters';
   static const String tableBookmarks = 'bookmarks';
   static const String tableWallets = 'wallets';
-  static const String tableTransactions = 'coin_transactions';
+  static const String tableCoinTransactions = 'coin_transactions';
+  static const String tableTransactions = tableCoinTransactions;
   static const String tableCoinPackages = 'coin_packages';
 
   static final DatabaseHelper instance = DatabaseHelper._internal();
@@ -54,6 +55,9 @@ class DatabaseHelper {
   }
 
   Future<void> _ensureRequiredAccounts(Database db) async {
+    // Đảm bảo cột avatar_url luôn tồn tại trong bảng users
+    await _addColumnIfMissing(db, tableUsers, 'avatar_url', 'TEXT');
+
     // Đảm bảo bảng user_purchased_chapters luôn tồn tại
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $tableUserPurchasedChapters (
@@ -152,8 +156,6 @@ class DatabaseHelper {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      await _createCoinTables(db);
-      await _seedCoinPackages(db);
       await db.execute('''
         CREATE TABLE IF NOT EXISTS $tableChapters (
           id TEXT PRIMARY KEY,
@@ -170,6 +172,8 @@ class DatabaseHelper {
         )
       ''');
       await _seedChaptersData(db);
+      await _createCoinTables(db);
+      await _seedCoinPackages(db);
     }
     if (oldVersion < 3) {
       await _createCoinTables(db);
@@ -208,7 +212,8 @@ class DatabaseHelper {
         username TEXT UNIQUE NOT NULL,
         display_name TEXT NOT NULL,
         password TEXT NOT NULL,
-        role TEXT NOT NULL
+        role TEXT NOT NULL,
+        avatar_url TEXT
       )
     ''');
 
@@ -278,9 +283,7 @@ class DatabaseHelper {
     // 6. Nạp dữ liệu mẫu ban đầu (Seed data)
     await _seedInitialData(db);
 
-    // 4. Tạo bảng coin (wallets, transactions, packages) + seed gói coin
-    // Lưu ý: bảng này được tạo ở cả _onCreate và _onUpgrade để đảm bảo
-    // fresh install (đặc biệt trên web) cũng có đầy đủ schema.
+    // 7. Tạo bảng coin (wallets, transactions, packages) + seed gói coin
     await _createCoinTables(db);
     await _seedCoinPackages(db);
   }
@@ -303,7 +306,6 @@ class DatabaseHelper {
       );
     }
   }
-
   Future<void> _seedInitialData(Database db) async {
     // Seed Users
     final seedUsers = [
@@ -726,7 +728,39 @@ class DatabaseHelper {
     );
   }
 
-  /// Xóa người dùng (chỉ Admin)
+  /// Cập nhật thông tin profile người dùng (Tên hiển thị & Avatar)
+  Future<int> updateUserProfile({
+    required String id,
+    required String displayName,
+    String? avatarUrl,
+  }) async {
+    final db = await database;
+    final Map<String, dynamic> values = {
+      'display_name': displayName,
+    };
+    if (avatarUrl != null) {
+      values['avatar_url'] = avatarUrl;
+    }
+    return await db.update(
+      tableUsers,
+      values,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Cập nhật riêng avatar người dùng
+  Future<int> updateUserAvatar(String id, String? avatarUrl) async {
+    final db = await database;
+    return await db.update(
+      tableUsers,
+      {'avatar_url': avatarUrl},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Xóa người dùng (Admin hoặc User tự xóa)
   Future<int> deleteUser(String id) async {
     final db = await database;
     return await db.delete(
