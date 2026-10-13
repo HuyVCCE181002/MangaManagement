@@ -713,6 +713,23 @@ class DatabaseHelper {
     await _seedCoinPackages(db);
   }
 
+  /// Xóa cache database cũ (dùng khi schema thay đổi trên web)
+  /// Gọi 1 lần rồi reload app
+  Future<void> clearAllData() async {
+    final db = await database;
+    await db.delete(tableCoinTransactions);
+    await db.delete(tableWallets);
+    await db.delete(tableUsers);
+    await db.delete(tableMangas);
+    await db.delete(tableChapters);
+    await db.delete(tableUserPurchasedChapters);
+    await db.delete(tableBookmarks);
+    await db.delete(tableCoinPackages);
+    // Seed lại dữ liệu mặc định
+    await _seedInitialData(db);
+    await _seedCoinPackages(db);
+  }
+
   // ===================== CRUD CHAPTER =====================
 
   Future<List<Chapter>> getChaptersByMangaId(

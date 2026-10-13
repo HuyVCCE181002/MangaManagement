@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/database_helper.dart';
 import '../services/theme_service.dart';
 import 'home_screen.dart';
 import 'register_screen.dart';
@@ -94,6 +95,44 @@ class _LoginScreenState extends State<LoginScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
+          // Nút Reset DB (chỉ hiển thị khi debug)
+          IconButton(
+            tooltip: 'Reset Database (Dev only)',
+            icon: const Icon(Icons.refresh_rounded, color: Colors.orange),
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Reset Database?'),
+                  content: const Text(
+                    'Xóa toàn bộ dữ liệu (users, wallets, transactions, packages) và tạo lại dữ liệu mặc định. Sau đó cần đăng nhập lại.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Hủy'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: FilledButton.styleFrom(backgroundColor: Colors.orange),
+                      child: const Text('Reset'),
+                    ),
+                  ],
+                ),
+              );
+              if (confirm == true) {
+                await DatabaseHelper.instance.clearAllData();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Đã reset database! Vui lòng đăng nhập lại.'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              }
+            },
+          ),
           IconButton(
             tooltip: isDark ? 'Chuyển sang Chế độ Sáng' : 'Chuyển sang Chế độ Tối',
             icon: Icon(
