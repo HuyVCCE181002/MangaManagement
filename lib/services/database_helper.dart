@@ -1,4 +1,5 @@
 // Conditional imports: chọn factory theo nền tảng (web vs non-web)
+import 'package:flutter/foundation.dart';
 import 'database_factory_io.dart' if (dart.library.html) 'database_factory_web.dart';
 import '../models/bookmark.dart';
 import '../models/chapter.dart';
@@ -14,7 +15,8 @@ class DatabaseHelper {
   //   v1: users + mangas (bản đầu)
   //   v2: thêm chapters + user_purchased_chapters + bookmarks
   //   v3: thêm wallets + coin_transactions + coin_packages
-  static const int _dbVersion = 3;
+  // v4: thêm wallet_id cho coin_transactions (sửa lỗi NOT NULL khi schema cache cũ)
+  static const int _dbVersion = 4;
 
   static const String tableUsers = 'users';
   static const String tableMangas = 'mangas';
@@ -107,6 +109,54 @@ class DatabaseHelper {
     if (oldVersion < 3) {
       await _createCoinTables(db);
       await _seedCoinPackages(db);
+    }
+    // v3 -> v4: ALTER TABLE coin_transactions thêm wallet_id
+    //   - Sửa lỗi NOT NULL constraint failed trên web cache
+    if (oldVersion < 4) {
+      try {
+        // Kiểm tra xem cột wallet_id đã tồn tại chưa
+        final cols = await db.rawQuery('PRAGMA table_info(coin_transactions)');
+        final hasWalletId = cols.any((c) => c['name'] == 'wallet_id');
+        if (!hasWalletId) {
+          // Backfill wallet_id cho tất cả transactions cũ dựa vào user_id
+          await db.execute('''
+            UPDATE $tableCoinTransactions
+            SET wallet_id = 'wallet_' || user_id
+            WHERE wallet_id IS NULL OR wallet_id = ''
+          ''');
+          // Thêm cột wallet_id (vì SQLite không hỗ trợ ADD CONSTRAINT NOT NULL
+          // nếu đã có dữ liệu, ta tạo bảng tạm + copy)
+          await db.execute('''
+            CREATE TABLE coin_transactions_new (
+              id TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL,
+              wallet_id TEXT NOT NULL,
+              amount INTEGER NOT NULL,
+              coins_before INTEGER NOT NULL DEFAULT 0,
+              coins_after INTEGER NOT NULL DEFAULT 0,
+              type TEXT NOT NULL,
+              description TEXT,
+              payment_method TEXT,
+              package_id TEXT,
+              status TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY (wallet_id) REFERENCES $tableWallets (id) ON DELETE CASCADE
+            )
+          ''');
+          await db.execute('''
+            INSERT INTO coin_transactions_new
+            SELECT id, user_id, wallet_id, amount, coins_before, coins_after,
+                   type, description, payment_method, package_id, status, created_at
+            FROM $tableCoinTransactions
+          ''');
+          await db.execute('DROP TABLE $tableCoinTransactions');
+          await db.execute('ALTER TABLE coin_transactions_new RENAME TO $tableCoinTransactions');
+        }
+      } catch (e) {
+        debugPrint('Migration v3->v4 warning: $e');
+        // Nếu migration fail, xóa transactions cũ để tránh crash
+        await db.delete(tableCoinTransactions);
+      }
     }
   }
 

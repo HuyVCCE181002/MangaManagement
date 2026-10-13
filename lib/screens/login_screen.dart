@@ -95,44 +95,6 @@ class _LoginScreenState extends State<LoginScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
-          // Nút Reset DB (chỉ hiển thị khi debug)
-          IconButton(
-            tooltip: 'Reset Database (Dev only)',
-            icon: const Icon(Icons.refresh_rounded, color: Colors.orange),
-            onPressed: () async {
-              final confirm = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('Reset Database?'),
-                  content: const Text(
-                    'Xóa toàn bộ dữ liệu (users, wallets, transactions, packages) và tạo lại dữ liệu mặc định. Sau đó cần đăng nhập lại.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('Hủy'),
-                    ),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      style: FilledButton.styleFrom(backgroundColor: Colors.orange),
-                      child: const Text('Reset'),
-                    ),
-                  ],
-                ),
-              );
-              if (confirm == true) {
-                await DatabaseHelper.instance.clearAllData();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Đã reset database! Vui lòng đăng nhập lại.'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              }
-            },
-          ),
           IconButton(
             tooltip: isDark ? 'Chuyển sang Chế độ Sáng' : 'Chuyển sang Chế độ Tối',
             icon: Icon(
@@ -309,6 +271,95 @@ class _LoginScreenState extends State<LoginScreen> {
                       label: const Text(
                         'Tiếp tục duyệt với tư cách Khách (Guest)',
                         style: TextStyle(fontSize: 14),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // NÚT RESET DB - Nổi bật, dễ thấy
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.orange.withValues(alpha: 0.4), width: 1.5),
+                      ),
+                      child: InkWell(
+                        onTap: () async {
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              title: Row(
+                                children: const [
+                                  Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+                                  SizedBox(width: 10),
+                                  Text('Reset Database?'),
+                                ],
+                              ),
+                              content: const Text(
+                                'Xóa toàn bộ dữ liệu (users, wallets, transactions) và tạo lại dữ liệu mặc định. Dùng khi gặp lỗi database hoặc schema cache cũ.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('Hủy'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  style: FilledButton.styleFrom(backgroundColor: Colors.orange),
+                                  child: const Text('Reset'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirm == true) {
+                            try {
+                              await DatabaseHelper.instance.clearAllData();
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Row(
+                                      children: [
+                                        Icon(Icons.check_circle, color: Colors.white),
+                                        SizedBox(width: 10),
+                                        Expanded(child: Text('Đã reset database! Vui lòng đăng nhập lại.')),
+                                      ],
+                                    ),
+                                    backgroundColor: Colors.green,
+                                    duration: Duration(seconds: 4),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Lỗi reset: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            }
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.refresh_rounded, color: Colors.orange, size: 20),
+                              SizedBox(width: 8),
+                              Text(
+                                '🔄 Reset Database (Dev only)',
+                                style: TextStyle(
+                                  color: Colors.orange,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 22),

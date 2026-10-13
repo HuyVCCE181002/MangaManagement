@@ -73,10 +73,20 @@ class WalletService extends ChangeNotifier {
   }) async {
     final db = DatabaseHelper.instance;
 
-    // 1. Lấy ví hiện tại
-    final wallet = await db.getWalletByUserId(userId);
+    // 1. Lấy ví hiện tại (auto-create nếu chưa có)
+    var wallet = await db.getWalletByUserId(userId);
     if (wallet == null) {
-      return (success: false, message: 'Không tìm thấy ví của người dùng.', transaction: null);
+      final now = DateTime.now();
+      wallet = Wallet(
+        id: 'wallet_$userId',
+        userId: userId,
+        balance: 0,
+        totalEarned: 0,
+        totalSpent: 0,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await db.insertWallet(wallet);
     }
 
     if (!package.isActive) {
