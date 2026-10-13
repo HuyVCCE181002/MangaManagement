@@ -62,6 +62,7 @@ enum TransactionStatus {
 class CoinTransaction {
   final String id;
   final String userId;
+  final String walletId;
   final TransactionType type;
   final int amount;       // Số coins (+ nạp/thưởng, - chi tiêu)
   final int coinsBefore;  // Số dư trước giao dịch
@@ -75,6 +76,7 @@ class CoinTransaction {
   const CoinTransaction({
     required this.id,
     required this.userId,
+    required this.walletId,
     required this.type,
     required this.amount,
     required this.coinsBefore,
@@ -90,6 +92,7 @@ class CoinTransaction {
     return {
       'id': id,
       'user_id': userId,
+      'wallet_id': walletId,
       'type': type.name,
       'amount': amount,
       'coins_before': coinsBefore,
@@ -106,6 +109,7 @@ class CoinTransaction {
     return CoinTransaction(
       id: map['id'] as String,
       userId: map['user_id'] as String,
+      walletId: map['wallet_id'] as String? ?? '',
       type: TransactionType.values.firstWhere(
         (t) => t.name == map['type'],
         orElse: () => TransactionType.deposit,
@@ -127,6 +131,7 @@ class CoinTransaction {
   CoinTransaction copyWith({
     String? id,
     String? userId,
+    String? walletId,
     TransactionType? type,
     int? amount,
     int? coinsBefore,
@@ -140,6 +145,7 @@ class CoinTransaction {
     return CoinTransaction(
       id: id ?? this.id,
       userId: userId ?? this.userId,
+      walletId: walletId ?? this.walletId,
       type: type ?? this.type,
       amount: amount ?? this.amount,
       coinsBefore: coinsBefore ?? this.coinsBefore,

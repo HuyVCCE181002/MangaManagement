@@ -91,6 +91,7 @@ class WalletService extends ChangeNotifier {
     final tx = CoinTransaction(
       id: const Uuid().v4(),
       userId: userId,
+      walletId: wallet.id,
       type: TransactionType.deposit,
       amount: totalCoins,
       coinsBefore: wallet.balance,
@@ -161,6 +162,7 @@ class WalletService extends ChangeNotifier {
     final tx = CoinTransaction(
       id: const Uuid().v4(),
       userId: userId,
+      walletId: wallet.id,
       type: TransactionType.purchase,
       amount: -amount,
       coinsBefore: wallet.balance,
