@@ -235,7 +235,6 @@ class _DepositScreenState extends State<DepositScreen> {
     final qrData = VNPayService.instance.createQRCodeData(
       amount: _finalPrice.toInt(),
       orderInfo: 'Nap ${pkg.totalCoins} coins - ${user.username}',
-      merchantCode: 'MANAVAULT',
     );
 
     // Hiển thị thông tin thanh toán
