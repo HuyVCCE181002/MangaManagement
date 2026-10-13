@@ -188,6 +188,65 @@ class WalletService extends ChangeNotifier {
     );
   }
 
+  /// Thưởng coins (điểm danh hàng ngày, nhiệm vụ, bonus)
+  Future<({bool success, String message, CoinTransaction? transaction})> rewardCoins({
+    required String userId,
+    required int amount,
+    required String description,
+  }) async {
+    if (amount <= 0) {
+      return (success: false, message: 'Số coins thưởng phải lớn hơn 0.', transaction: null);
+    }
+
+    final db = DatabaseHelper.instance;
+    var wallet = await db.getWalletByUserId(userId);
+    if (wallet == null) {
+      final now = DateTime.now();
+      wallet = Wallet(
+        id: 'wallet_$userId',
+        userId: userId,
+        balance: 0,
+        totalEarned: 0,
+        totalSpent: 0,
+        createdAt: now,
+        updatedAt: now,
+      );
+      await db.insertWallet(wallet);
+    }
+
+    final newBalance = wallet.balance + amount;
+    final newTotalEarned = wallet.totalEarned + amount;
+
+    final tx = CoinTransaction(
+      id: const Uuid().v4(),
+      userId: userId,
+      type: TransactionType.bonus,
+      amount: amount,
+      coinsBefore: wallet.balance,
+      coinsAfter: newBalance,
+      description: description,
+      status: TransactionStatus.completed,
+      createdAt: DateTime.now(),
+    );
+
+    await db.insertTransaction(tx);
+    await db.updateWalletBalance(userId, newBalance, newTotalEarned, wallet.totalSpent);
+
+    _currentWallet = wallet.copyWith(
+      balance: newBalance,
+      totalEarned: newTotalEarned,
+      updatedAt: DateTime.now(),
+    );
+    _transactions.insert(0, tx);
+    notifyListeners();
+
+    return (
+      success: true,
+      message: 'Nhận thành công ${_formatNumber(amount)} coins!',
+      transaction: tx,
+    );
+  }
+
   /// Reset ví khi logout
   void clearCache() {
     _currentWallet = null;

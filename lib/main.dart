@@ -5,6 +5,7 @@ import 'services/auth_service.dart';
 import 'services/database_helper.dart';
 import 'services/theme_service.dart';
 import 'services/wallet_service.dart';
+import 'services/daily_check_in_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,9 +18,12 @@ Future<void> main() async {
     ThemeService.instance.init(),
   ]);
 
-  // Nếu đã đăng nhập, load ví ngay
+  // Nếu đã đăng nhập, load ví và dữ liệu điểm danh ngay
   if (AuthService.instance.isLoggedIn) {
-    await WalletService.instance.loadWallet(AuthService.instance.currentUser.id);
+    await Future.wait([
+      WalletService.instance.loadWallet(AuthService.instance.currentUser.id),
+      DailyCheckInService.instance.loadForUser(AuthService.instance.currentUser.id),
+    ]);
   }
 
   runApp(const MyApp());

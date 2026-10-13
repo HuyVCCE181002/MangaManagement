@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/user.dart';
 import 'database_helper.dart';
 import 'wallet_service.dart';
+import 'daily_check_in_service.dart';
 
 class AuthService extends ChangeNotifier {
   static const String _currentSessionKey = 'manga_vault_current_session_v1';
@@ -67,8 +68,9 @@ class AuthService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_currentSessionKey, user.id);
 
-    // Load ví của user vừa đăng nhập
+    // Load ví và thông tin điểm danh của user vừa đăng nhập
     await WalletService.instance.loadWallet(user.id);
+    await DailyCheckInService.instance.loadForUser(user.id);
 
     notifyListeners();
 
@@ -119,8 +121,9 @@ class AuthService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_currentSessionKey, newUser.id);
 
-    // Tạo ví cho user mới
+    // Tạo ví và khởi tạo điểm danh cho user mới
     await WalletService.instance.loadWallet(newUser.id);
+    await DailyCheckInService.instance.loadForUser(newUser.id);
 
     notifyListeners();
 
@@ -133,6 +136,7 @@ class AuthService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_currentSessionKey);
     WalletService.instance.clearCache();
+    DailyCheckInService.instance.clearCache();
     notifyListeners();
   }
 
@@ -142,6 +146,7 @@ class AuthService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_currentSessionKey);
     WalletService.instance.clearCache();
+    DailyCheckInService.instance.clearCache();
     notifyListeners();
   }
 
