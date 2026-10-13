@@ -64,6 +64,7 @@ class AppUser {
   final String displayName;
   final String password;
   final UserRole role;
+  final String? avatarUrl;
 
   const AppUser({
     required this.id,
@@ -71,6 +72,7 @@ class AppUser {
     required this.displayName,
     required this.password,
     required this.role,
+    this.avatarUrl,
   });
 
   bool get isGuest => role == UserRole.guest;
@@ -82,6 +84,7 @@ class AppUser {
       'displayName': displayName,
       'password': password,
       'role': role.name,
+      'avatarUrl': avatarUrl,
     };
   }
 
@@ -97,6 +100,7 @@ class AppUser {
       'display_name': displayName,
       'password': password,
       'role': role.name,
+      'avatar_url': avatarUrl,
     };
   }
 
@@ -111,6 +115,7 @@ class AppUser {
         (r) => r.name == map['role'],
         orElse: () => UserRole.reader,
       ),
+      avatarUrl: (map['avatar_url'] ?? map['avatarUrl']) as String?,
     );
   }
 
@@ -120,6 +125,7 @@ class AppUser {
     String? displayName,
     String? password,
     UserRole? role,
+    String? avatarUrl,
   }) {
     return AppUser(
       id: id ?? this.id,
@@ -127,6 +133,7 @@ class AppUser {
       displayName: displayName ?? this.displayName,
       password: password ?? this.password,
       role: role ?? this.role,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
     );
   }
 
@@ -136,5 +143,7 @@ class AppUser {
     displayName: 'Khách',
     password: '',
     role: UserRole.guest,
+    avatarUrl: null,
   );
 }
+

@@ -1,7 +1,4 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
-import 'package:path/path.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'database_factory_io.dart' if (dart.library.js_interop) 'database_factory_web.dart';
 import '../models/bookmark.dart';
 import '../models/chapter.dart';
 import '../models/manga.dart';
@@ -12,13 +9,16 @@ import '../models/coin_package.dart';
 
 class DatabaseHelper {
   static const String _dbName = 'manga_vault.db';
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 3;
 
   static const String tableUsers = 'users';
   static const String tableMangas = 'mangas';
   static const String tableChapters = 'chapters';
   static const String tableUserPurchasedChapters = 'user_purchased_chapters';
   static const String tableBookmarks = 'bookmarks';
+  static const String tableWallets = 'wallets';
+  static const String tableCoinTransactions = 'coin_transactions';
+  static const String tableCoinPackages = 'coin_packages';
 
   static final DatabaseHelper instance = DatabaseHelper._internal();
   DatabaseHelper._internal();
@@ -52,6 +52,9 @@ class DatabaseHelper {
   }
 
   Future<void> _ensureRequiredAccounts(Database db) async {
+    // Đảm bảo cột avatar_url luôn tồn tại trong bảng users
+    await _addColumnIfMissing(db, tableUsers, 'avatar_url', 'TEXT');
+
     // Đảm bảo bảng user_purchased_chapters luôn tồn tại
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $tableUserPurchasedChapters (
@@ -93,18 +96,28 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Migrate từ version 1 lên 2: thêm bảng coin
     if (oldVersion < 2) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS $tableChapters (
+          id TEXT PRIMARY KEY,
+          manga_id TEXT NOT NULL,
+          chapter_number INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          contents TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          is_locked INTEGER NOT NULL DEFAULT 0,
+          is_deleted INTEGER NOT NULL DEFAULT 0,
+          price REAL NOT NULL DEFAULT 0.0,
+          FOREIGN KEY (manga_id) REFERENCES $tableMangas (id) ON DELETE CASCADE
+        )
+      ''');
+      await _seedChaptersData(db);
       await _createCoinTables(db);
       await _seedCoinPackages(db);
     }
-    // Migrate từ version 2 lên 3: bảng coin có thể chưa tồn tại trên
-    // các bản cài cũ do _onCreate trước đây không gọi _createCoinTables.
     if (oldVersion < 3) {
       await _createCoinTables(db);
-      // _createCoinTables dùng IF NOT EXISTS, không thêm cột mới nếu bảng
-      // đã có. Vì vậy ta phải ALTER TABLE thủ công cho từng cột còn thiếu
-      // (bonus_coins, is_featured, sort_order) để tránh phải xóa DB.
       await _addColumnIfMissing(db, tableCoinPackages, 'bonus_coins',
           'INTEGER NOT NULL DEFAULT 0');
       await _addColumnIfMissing(db, tableCoinPackages, 'is_featured',
@@ -135,7 +148,8 @@ class DatabaseHelper {
         username TEXT UNIQUE NOT NULL,
         display_name TEXT NOT NULL,
         password TEXT NOT NULL,
-        role TEXT NOT NULL
+        role TEXT NOT NULL,
+        avatar_url TEXT
       )
     ''');
 
@@ -202,33 +216,9 @@ class DatabaseHelper {
     // 6. Nạp dữ liệu mẫu ban đầu (Seed data)
     await _seedInitialData(db);
 
-    // 4. Tạo bảng coin (wallets, transactions, packages) + seed gói coin
-    // Lưu ý: bảng này được tạo ở cả _onCreate và _onUpgrade để đảm bảo
-    // fresh install (đặc biệt trên web) cũng có đầy đủ schema.
+    // 7. Tạo bảng coin (wallets, transactions, packages) + seed gói coin
     await _createCoinTables(db);
     await _seedCoinPackages(db);
-  }
-
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS $tableChapters (
-          id TEXT PRIMARY KEY,
-          manga_id TEXT NOT NULL,
-          chapter_number INTEGER NOT NULL,
-          title TEXT NOT NULL,
-          contents TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          is_locked INTEGER NOT NULL DEFAULT 0,
-          is_deleted INTEGER NOT NULL DEFAULT 0,
-          price REAL NOT NULL DEFAULT 0.0,
-          is_purchased INTEGER NOT NULL DEFAULT 0,
-          FOREIGN KEY (manga_id) REFERENCES $tableMangas (id) ON DELETE CASCADE
-        )
-      ''');
-      await _seedChaptersData(db);
-    }
   }
 
   Future<void> _seedInitialData(Database db) async {
@@ -615,7 +605,39 @@ class DatabaseHelper {
     );
   }
 
-  /// Xóa người dùng (chỉ Admin)
+  /// Cập nhật thông tin profile người dùng (Tên hiển thị & Avatar)
+  Future<int> updateUserProfile({
+    required String id,
+    required String displayName,
+    String? avatarUrl,
+  }) async {
+    final db = await database;
+    final Map<String, dynamic> values = {
+      'display_name': displayName,
+    };
+    if (avatarUrl != null) {
+      values['avatar_url'] = avatarUrl;
+    }
+    return await db.update(
+      tableUsers,
+      values,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Cập nhật riêng avatar người dùng
+  Future<int> updateUserAvatar(String id, String? avatarUrl) async {
+    final db = await database;
+    return await db.update(
+      tableUsers,
+      {'avatar_url': avatarUrl},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Xóa người dùng (Admin hoặc User tự xóa)
   Future<int> deleteUser(String id) async {
     final db = await database;
     return await db.delete(
@@ -816,5 +838,252 @@ class DatabaseHelper {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  // ===================== CRUD BOOKMARK =====================
+
+  /// Toggle (Tạo / Cập nhật / Xoá) bookmark
+  Future<void> toggleBookmark(String userId, String mangaId, String chapterId) async {
+    final db = await database;
+    final existingBookmark = await getBookmark(userId, mangaId);
+
+    if (existingBookmark == null) {
+      // Chưa có -> Tạo mới
+      await db.insert(
+        tableBookmarks,
+        Bookmark(
+          userId: userId,
+          mangaId: mangaId,
+          chapterId: chapterId,
+          createdAt: DateTime.now(),
+        ).toMap(),
+      );
+    } else if (existingBookmark.chapterId == chapterId) {
+      // Đã có ở đúng chương này -> Xoá
+      await deleteBookmark(userId, mangaId);
+    } else {
+      // Đã có ở chương khác -> Cập nhật
+      await db.update(
+        tableBookmarks,
+        {
+          'chapter_id': chapterId,
+          'created_at': DateTime.now().toIso8601String(),
+        },
+        where: 'user_id = ? AND manga_id = ?',
+        whereArgs: [userId, mangaId],
+      );
+    }
+  }
+
+  /// Lấy toàn bộ danh sách bookmark của user (JOIN bảng mangas và chapters)
+  Future<List<BookmarkDetail>> getUserBookmarks(String userId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.rawQuery('''
+      SELECT
+        b.user_id, b.manga_id, b.chapter_id, b.created_at,
+        m.title AS manga_title, m.cover_url,
+        c.title AS chapter_title, c.chapter_number
+      FROM $tableBookmarks b
+      JOIN $tableMangas m ON b.manga_id = m.id
+      JOIN $tableChapters c ON b.chapter_id = c.id
+      WHERE b.user_id = ?
+      ORDER BY b.created_at DESC
+    ''', [userId]);
+
+    return maps.map((map) {
+      final bookmark = Bookmark(
+        userId: map['user_id'] as String,
+        mangaId: map['manga_id'] as String,
+        chapterId: map['chapter_id'] as String,
+        createdAt: DateTime.parse(map['created_at'] as String),
+      );
+
+      return BookmarkDetail(
+        bookmark: bookmark,
+        mangaTitle: map['manga_title'] as String,
+        coverUrl: map['cover_url'] as String,
+        chapterTitle: map['chapter_title'] as String,
+        chapterNumber: map['chapter_number'] as int,
+      );
+    }).toList();
+  }
+
+  /// Xóa bookmark theo userId và mangaId
+  Future<int> deleteBookmark(String userId, String mangaId) async {
+    final db = await database;
+    return await db.delete(
+      tableBookmarks,
+      where: 'user_id = ? AND manga_id = ?',
+      whereArgs: [userId, mangaId],
+    );
+  }
+
+  // ===================== COIN TABLES =====================
+
+  Future<void> _createCoinTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableWallets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT UNIQUE NOT NULL,
+        balance INTEGER NOT NULL DEFAULT 0,
+        total_earned INTEGER NOT NULL DEFAULT 0,
+        total_spent INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES $tableUsers(id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableCoinTransactions (
+        id TEXT PRIMARY KEY,
+        wallet_id TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (wallet_id) REFERENCES $tableWallets(id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableCoinPackages (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        coins INTEGER NOT NULL,
+        price REAL NOT NULL,
+        bonus_coins INTEGER NOT NULL DEFAULT 0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        is_featured INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _seedCoinPackages(Database db) async {
+    final now = DateTime.now().toIso8601String();
+    final packages = [
+      {'id': 'pkg_1', 'name': 'Starter Pack', 'coins': 100, 'price': 10000.0, 'bonus_coins': 0, 'is_active': 1, 'is_featured': 0, 'sort_order': 1, 'created_at': now},
+      {'id': 'pkg_2', 'name': 'Bronze Pack', 'coins': 500, 'price': 45000.0, 'bonus_coins': 50, 'is_active': 1, 'is_featured': 0, 'sort_order': 2, 'created_at': now},
+      {'id': 'pkg_3', 'name': 'Silver Pack', 'coins': 1000, 'price': 85000.0, 'bonus_coins': 150, 'is_active': 1, 'is_featured': 0, 'sort_order': 3, 'created_at': now},
+      {'id': 'pkg_4', 'name': 'Gold Pack', 'coins': 2000, 'price': 160000.0, 'bonus_coins': 400, 'is_active': 1, 'is_featured': 1, 'sort_order': 4, 'created_at': now},
+      {'id': 'pkg_5', 'name': 'VIP Pack', 'coins': 5000, 'price': 380000.0, 'bonus_coins': 1250, 'is_active': 1, 'is_featured': 1, 'sort_order': 5, 'created_at': now},
+    ];
+
+    for (final pkg in packages) {
+      await db.insert(
+        tableCoinPackages,
+        pkg,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+  }
+
+  // ===================== CRUD WALLET =====================
+
+  Future<Wallet?> getWalletByUserId(String userId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      tableWallets,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (maps.isNotEmpty) {
+      return Wallet.fromMap(maps.first);
+    }
+    return null;
+  }
+
+  Future<int> insertWallet(Wallet wallet) async {
+    final db = await database;
+    return await db.insert(
+      tableWallets,
+      wallet.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<int> updateWalletBalance(
+    String userId,
+    int newBalance,
+    int newTotalEarned,
+    int newTotalSpent,
+  ) async {
+    final db = await database;
+    return await db.update(
+      tableWallets,
+      {
+        'balance': newBalance,
+        'total_earned': newTotalEarned,
+        'total_spent': newTotalSpent,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
+  }
+
+  // ===================== CRUD COIN TRANSACTION =====================
+
+  Future<List<CoinTransaction>> getTransactionsByUserId(String userId) async {
+    final db = await database;
+    final wallet = await getWalletByUserId(userId);
+    if (wallet == null) return [];
+
+    final List<Map<String, dynamic>> maps = await db.query(
+      tableCoinTransactions,
+      where: 'wallet_id = ?',
+      whereArgs: [wallet.id],
+      orderBy: 'created_at DESC',
+    );
+    return maps.map((map) => CoinTransaction.fromMap(map)).toList();
+  }
+
+  Future<int> insertTransaction(CoinTransaction tx) async {
+    final db = await database;
+    return await db.insert(
+      tableCoinTransactions,
+      tx.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<int> updateTransactionStatus(String id, TransactionStatus status) async {
+    final db = await database;
+    return await db.update(
+      tableCoinTransactions,
+      {'status': status.name},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ===================== CRUD COIN PACKAGE =====================
+
+  Future<List<CoinPackage>> getAllCoinPackages({bool activeOnly = false}) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      tableCoinPackages,
+      where: activeOnly ? 'is_active = 1' : null,
+      orderBy: 'sort_order ASC',
+    );
+    return maps.map((map) => CoinPackage.fromMap(map)).toList();
+  }
+
+  Future<CoinPackage?> getCoinPackageById(String id) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      tableCoinPackages,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (maps.isNotEmpty) {
+      return CoinPackage.fromMap(maps.first);
+    }
+    return null;
   }
 }
