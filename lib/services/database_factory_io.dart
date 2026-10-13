@@ -1,7 +1,6 @@
 // Database factory for non-web platforms (desktop, mobile)
 import 'dart:io';
 import 'package:path/path.dart';
-import 'package:sqflite_common/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 export 'package:sqflite_common/sqflite.dart' show Database, openDatabase, ConflictAlgorithm;

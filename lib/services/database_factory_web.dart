@@ -2,6 +2,7 @@
 // Web hiện tại gặp vấn đề với sqflite_common_ffi_web + Chrome mới
 // Tạm thời dùng stub factory
 
+import 'package:flutter/foundation.dart';
 import 'package:sqflite_common/sqflite.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
@@ -18,6 +19,6 @@ void setupPlatformDatabase() {
     databaseFactory = createDatabaseFactoryFfiWeb(noWebWorker: true);
   } catch (e) {
     // Nếu fail, dùng mặc định (sẽ throw khi mở db)
-    print('Warning: cannot init web database factory: $e');
+    debugPrint('Warning: cannot init web database factory: $e');
   }
 }
