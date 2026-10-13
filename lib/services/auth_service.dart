@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/user.dart';
 import 'database_helper.dart';
+import 'wallet_service.dart';
 
 class AuthService extends ChangeNotifier {
   static const String _currentSessionKey = 'manga_vault_current_session_v1';
@@ -65,6 +66,10 @@ class AuthService extends ChangeNotifier {
     _currentUser = user;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_currentSessionKey, user.id);
+
+    // Load ví của user vừa đăng nhập
+    await WalletService.instance.loadWallet(user.id);
+
     notifyListeners();
 
     return (success: true, message: 'Đăng nhập thành công với vai trò ${user.role.label}!');
@@ -113,6 +118,10 @@ class AuthService extends ChangeNotifier {
     _currentUser = newUser;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_currentSessionKey, newUser.id);
+
+    // Tạo ví cho user mới
+    await WalletService.instance.loadWallet(newUser.id);
+
     notifyListeners();
 
     return (success: true, message: 'Đăng ký thành công! Chào mừng độc giả ${newUser.displayName}!');
@@ -123,6 +132,7 @@ class AuthService extends ChangeNotifier {
     _currentUser = AppUser.guest;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_currentSessionKey);
+    WalletService.instance.clearCache();
     notifyListeners();
   }
 
@@ -131,6 +141,7 @@ class AuthService extends ChangeNotifier {
     _currentUser = AppUser.guest;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_currentSessionKey);
+    WalletService.instance.clearCache();
     notifyListeners();
   }
 
@@ -157,16 +168,44 @@ class AuthService extends ChangeNotifier {
     return true;
   }
 
-  /// Xóa user (chỉ Admin, không được xóa chính mình)
+  /// Xóa user (Admin) - Level Complex:
+  /// - Không xóa chính mình
+  /// - Không xóa Admin cuối cùng (phải còn ít nhất 1 Admin trong hệ thống)
+  /// - Xóa cascade: ví, giao dịch của user
+  /// - Trả về thông báo chi tiết
   Future<({bool success, String message})> deleteUser(String userId) async {
+    // 1. Không cho xóa chính mình
     if (_currentUser.id == userId) {
       return (success: false, message: 'Không thể tự xóa tài khoản đang đăng nhập!');
     }
 
+    final userIndex = _allUsers.indexWhere((u) => u.id == userId);
+    if (userIndex == -1) {
+      return (success: false, message: 'Không tìm thấy tài khoản cần xóa.');
+    }
+    final targetUser = _allUsers[userIndex];
+
+    // 2. Bảo vệ Admin cuối cùng: nếu user bị xóa là Admin, phải còn ít nhất 1 Admin khác
+    if (targetUser.role == UserRole.admin) {
+      final adminCount = _allUsers.where((u) => u.role == UserRole.admin).length;
+      if (adminCount <= 1) {
+        return (
+          success: false,
+          message: 'Không thể xóa Admin cuối cùng của hệ thống! Hãy nâng cấp một tài khoản khác lên Admin trước.',
+        );
+      }
+    }
+
+    // 3. Xóa cascade: ví & giao dịch của user (DatabaseHelper chưa có cascade riêng
+    //    cho wallet/transaction, nhưng FOREIGN KEY ON DELETE CASCADE sẽ tự xóa khi user bị xóa)
     await DatabaseHelper.instance.deleteUser(userId);
-    _allUsers.removeWhere((u) => u.id == userId);
+    _allUsers.removeAt(userIndex);
     notifyListeners();
-    return (success: true, message: 'Đã xóa người dùng thành công.');
+
+    return (
+      success: true,
+      message: 'Đã xóa tài khoản @${targetUser.username} (${targetUser.displayName}) và toàn bộ ví, giao dịch liên quan.',
+    );
   }
 
   // Thông tin phiên reset mật khẩu tạm thời

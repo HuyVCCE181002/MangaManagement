@@ -31,6 +31,21 @@
 
   <title>manga_management_app</title>
   <link rel="manifest" href="manifest.json">
+  
+  <!-- sqflite web worker registration - use relative path for proper scope -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      // Compute worker URL relative to current page
+      var swUrl = new URL('sqflite_sw.js', document.baseURI).toString();
+      navigator.serviceWorker.register(swUrl)
+        .then(function(reg) {
+          console.log('sqflite_sw.js registered, scope:', reg.scope);
+        })
+        .catch(function(err) {
+          console.warn('sqflite service worker registration failed:', err);
+        });
+    }
+  </script>
 </head>
 <body>
   <!--

@@ -130,22 +130,96 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       return;
     }
 
+    // Cảnh báo bổ sung nếu user có ví & giao dịch
+    final adminCount = _users.where((u) => u.role == UserRole.admin).length;
+    final isLastAdmin = user.role == UserRole.admin && adminCount <= 1;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E212D),
-        title: const Text('Xác nhận xóa tài khoản', style: TextStyle(color: Colors.white)),
-        content: Text(
-          'Bạn có chắc chắn muốn xóa tài khoản "${user.username}" (${user.displayName})?',
-          style: const TextStyle(color: Colors.white70),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 28),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Xác nhận xóa tài khoản',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Bạn có chắc chắn muốn xóa tài khoản "${user.username}" (${user.displayName})?',
+              style: const TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, color: Colors.redAccent, size: 16),
+                      SizedBox(width: 6),
+                      Text('Hành động này sẽ xóa:', style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  SizedBox(height: 6),
+                  Text('• Tài khoản "@${user.username}" (${user.displayName})', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  Text('• Ví coins & toàn bộ lịch sử giao dịch', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  Text('• Tất cả dữ liệu liên quan', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  SizedBox(height: 4),
+                  Text('⚠️ Không thể hoàn tác!', style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            if (isLastAdmin) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.admin_panel_settings_rounded, color: Colors.amber, size: 18),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Đây là Admin cuối cùng của hệ thống!',
+                        style: TextStyle(color: Colors.amber, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Hủy', style: TextStyle(color: Colors.grey)),
           ),
-          ElevatedButton(
+          ElevatedButton.icon(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            icon: const Icon(Icons.delete_forever_rounded, color: Colors.white, size: 18),
+            label: const Text('Xóa vĩnh viễn', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             onPressed: () async {
               Navigator.pop(ctx);
               final res = await _auth.deleteUser(user.id);
@@ -155,11 +229,11 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   SnackBar(
                     content: Text(res.message),
                     backgroundColor: res.success ? const Color(0xFF00B894) : const Color(0xFFD63031),
+                    behavior: SnackBarBehavior.floating,
                   ),
                 );
               }
             },
-            child: const Text('Xóa', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),

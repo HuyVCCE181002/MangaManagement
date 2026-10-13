@@ -54,6 +54,8 @@ enum UserRole {
   bool get canDeleteChapter => this == UserRole.staff;
   bool get canDeleteManga => this == UserRole.admin;
   bool get canManageUsers => this == UserRole.admin;
+  bool get canAccessWallet => this != UserRole.guest;
+  bool get canManageCoinPackages => this == UserRole.admin;
 }
 
 class AppUser {

@@ -6,19 +6,20 @@ import '../models/bookmark.dart';
 import '../models/chapter.dart';
 import '../models/manga.dart';
 import '../models/user.dart';
+import '../models/wallet.dart';
+import '../models/coin_transaction.dart';
+import '../models/coin_package.dart';
 
 class DatabaseHelper {
   static const String _dbName = 'manga_vault.db';
   static const int _dbVersion = 2;
 
-  // Tên các bảng
   static const String tableUsers = 'users';
   static const String tableMangas = 'mangas';
   static const String tableChapters = 'chapters';
   static const String tableUserPurchasedChapters = 'user_purchased_chapters';
   static const String tableBookmarks = 'bookmarks';
 
-  // Singleton instance
   static final DatabaseHelper instance = DatabaseHelper._internal();
   DatabaseHelper._internal();
 
@@ -31,14 +32,11 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    // Khởi tạo FFI cho Windows/Linux để chạy mượt mà trên môi trường Desktop
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    }
-
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbName);
+    // Khởi tạo database factory theo nền tảng
+    setupPlatformDatabase();
+    
+    // Lấy đường dẫn database theo nền tảng
+    final path = await resolveDatabasePath(_dbName);
 
     final db = await openDatabase(
       path,
@@ -92,6 +90,41 @@ class DatabaseHelper {
       phatStaff.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    // Migrate từ version 1 lên 2: thêm bảng coin
+    if (oldVersion < 2) {
+      await _createCoinTables(db);
+      await _seedCoinPackages(db);
+    }
+    // Migrate từ version 2 lên 3: bảng coin có thể chưa tồn tại trên
+    // các bản cài cũ do _onCreate trước đây không gọi _createCoinTables.
+    if (oldVersion < 3) {
+      await _createCoinTables(db);
+      // _createCoinTables dùng IF NOT EXISTS, không thêm cột mới nếu bảng
+      // đã có. Vì vậy ta phải ALTER TABLE thủ công cho từng cột còn thiếu
+      // (bonus_coins, is_featured, sort_order) để tránh phải xóa DB.
+      await _addColumnIfMissing(db, tableCoinPackages, 'bonus_coins',
+          'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfMissing(db, tableCoinPackages, 'is_featured',
+          'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfMissing(db, tableCoinPackages, 'sort_order',
+          'INTEGER NOT NULL DEFAULT 0');
+      await _seedCoinPackages(db);
+    }
+  }
+
+  /// Thêm một cột vào bảng nếu cột đó chưa tồn tại.
+  /// Dùng PRAGMA table_info để kiểm tra trước khi ALTER, tránh lỗi
+  /// "duplicate column name" trên các bản cài đã có sẵn cột.
+  Future<void> _addColumnIfMissing(
+      Database db, String table, String column, String definition) async {
+    final info = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = info.any((row) => row['name'] == column);
+    if (!exists) {
+      await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -168,6 +201,12 @@ class DatabaseHelper {
 
     // 6. Nạp dữ liệu mẫu ban đầu (Seed data)
     await _seedInitialData(db);
+
+    // 4. Tạo bảng coin (wallets, transactions, packages) + seed gói coin
+    // Lưu ý: bảng này được tạo ở cả _onCreate và _onUpgrade để đảm bảo
+    // fresh install (đặc biệt trên web) cũng có đầy đủ schema.
+    await _createCoinTables(db);
+    await _seedCoinPackages(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -751,79 +790,31 @@ class DatabaseHelper {
     return null;
   }
 
-  /// Toggle (Tạo / Cập nhật / Xoá) bookmark
-  Future<void> toggleBookmark(String userId, String mangaId, String chapterId) async {
+  Future<int> insertCoinPackage(CoinPackage pkg) async {
     final db = await database;
-    final existingBookmark = await getBookmark(userId, mangaId);
-
-    if (existingBookmark == null) {
-      // Chưa có -> Tạo mới
-      await db.insert(
-        tableBookmarks,
-        Bookmark(
-          userId: userId,
-          mangaId: mangaId,
-          chapterId: chapterId,
-          createdAt: DateTime.now(),
-        ).toMap(),
-      );
-    } else if (existingBookmark.chapterId == chapterId) {
-      // Đã có ở đúng chương này -> Xoá
-      await deleteBookmark(userId, mangaId);
-    } else {
-      // Đã có ở chương khác -> Cập nhật
-      await db.update(
-        tableBookmarks,
-        {
-          'chapter_id': chapterId,
-          'created_at': DateTime.now().toIso8601String(),
-        },
-        where: 'user_id = ? AND manga_id = ?',
-        whereArgs: [userId, mangaId],
-      );
-    }
+    return await db.insert(
+      tableCoinPackages,
+      pkg.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
-  /// Lấy toàn bộ danh sách bookmark của user (JOIN bảng mangas và chapters)
-  Future<List<BookmarkDetail>> getUserBookmarks(String userId) async {
+  Future<int> updateCoinPackage(CoinPackage pkg) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.rawQuery('''
-      SELECT
-        b.user_id, b.manga_id, b.chapter_id, b.created_at,
-        m.title AS manga_title, m.cover_url,
-        c.title AS chapter_title, c.chapter_number
-      FROM $tableBookmarks b
-      JOIN $tableMangas m ON b.manga_id = m.id
-      JOIN $tableChapters c ON b.chapter_id = c.id
-      WHERE b.user_id = ?
-      ORDER BY b.created_at DESC
-    ''', [userId]);
-
-    return maps.map((map) {
-      final bookmark = Bookmark(
-        userId: map['user_id'] as String,
-        mangaId: map['manga_id'] as String,
-        chapterId: map['chapter_id'] as String,
-        createdAt: DateTime.parse(map['created_at'] as String),
-      );
-
-      return BookmarkDetail(
-        bookmark: bookmark,
-        mangaTitle: map['manga_title'] as String,
-        coverUrl: map['cover_url'] as String,
-        chapterTitle: map['chapter_title'] as String,
-        chapterNumber: map['chapter_number'] as int,
-      );
-    }).toList();
+    return await db.update(
+      tableCoinPackages,
+      pkg.toMap(),
+      where: 'id = ?',
+      whereArgs: [pkg.id],
+    );
   }
 
-  /// Xóa bookmark theo userId và mangaId
-  Future<int> deleteBookmark(String userId, String mangaId) async {
+  Future<int> deleteCoinPackage(String id) async {
     final db = await database;
     return await db.delete(
-      tableBookmarks,
-      where: 'user_id = ? AND manga_id = ?',
-      whereArgs: [userId, mangaId],
+      tableCoinPackages,
+      where: 'id = ?',
+      whereArgs: [id],
     );
   }
 }
