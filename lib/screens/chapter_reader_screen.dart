@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../models/chapter.dart';
 import '../models/user.dart';
+import '../models/bookmark.dart';
 import '../services/auth_service.dart';
+import '../services/database_helper.dart';
 import 'chapter_form_screen.dart';
 
 class ChapterReaderScreen extends StatefulWidget {
@@ -21,11 +23,36 @@ class ChapterReaderScreen extends StatefulWidget {
 class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
   late Chapter _currentChapter;
   final ScrollController _scrollController = ScrollController();
+  Bookmark? _currentBookmark;
 
   @override
   void initState() {
     super.initState();
     _currentChapter = widget.chapter;
+    _loadBookmark();
+  }
+
+  Future<void> _loadBookmark() async {
+    final user = AuthService.instance.currentUser;
+    if (!user.isGuest) {
+      final bookmark = await DatabaseHelper.instance.getBookmark(user.id, _currentChapter.mangaId);
+      setState(() {
+        _currentBookmark = bookmark;
+      });
+    }
+  }
+
+  Future<void> _toggleBookmark() async {
+    final user = AuthService.instance.currentUser;
+    if (user.isGuest) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng đăng nhập để lưu Bookmark!')),
+      );
+      return;
+    }
+
+    await DatabaseHelper.instance.toggleBookmark(user.id, _currentChapter.mangaId, _currentChapter.id);
+    await _loadBookmark(); // Tải lại bookmark để update icon
   }
 
   @override
@@ -59,6 +86,7 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
+    _loadBookmark(); // Load lại bookmark khi đổi chương
   }
 
   @override
@@ -91,6 +119,20 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
           ],
         ),
         actions: [
+          // Nút Bookmark
+          IconButton(
+            tooltip: 'Bookmark',
+            icon: Icon(
+              _currentBookmark?.chapterId == _currentChapter.id
+                ? Icons.bookmark
+                : Icons.bookmark_border,
+              color: _currentBookmark?.chapterId == _currentChapter.id
+                ? Colors.amber
+                : Colors.blue,
+            ),
+            onPressed: _toggleBookmark,
+          ),
+
           // Nút Edit chương trực tiếp cho Staff
           if (currentUser.role.canEditChapter)
             IconButton(
