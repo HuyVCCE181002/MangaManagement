@@ -5,6 +5,7 @@ import '../services/auth_guard.dart';
 import '../services/auth_service.dart';
 import '../services/services.dart';
 import '../services/theme_service.dart';
+import '../services/wallet_service.dart';
 import '../widgets/manga_card.dart';
 import 'detail_screen.dart';
 import 'form_screen.dart';
@@ -12,6 +13,8 @@ import 'login_screen.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 import 'user_management_screen.dart';
+import 'wallet_screen.dart';
+import 'coin_package_management_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final MangaService _service = MangaService.instance;
   final AuthService _auth = AuthService.instance;
   final ThemeService _theme = ThemeService.instance;
+  final WalletService _wallet = WalletService.instance;
 
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
@@ -43,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
     _auth.addListener(_onStateChanged);
     _theme.addListener(_onStateChanged);
+    _wallet.addListener(_onStateChanged);
     _loadMangas();
   }
 
@@ -54,6 +59,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void dispose() {
     _auth.removeListener(_onStateChanged);
     _theme.removeListener(_onStateChanged);
+    _wallet.removeListener(_onStateChanged);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -412,12 +418,34 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       _buildPermissionRow('Chỉnh sửa truyện', user.role.canEditManga),
                       _buildPermissionRow('Xóa truyện', user.role.canDeleteManga),
                       _buildPermissionRow('Quản trị tài khoản', user.role.canManageUsers),
+                      _buildPermissionRow('Sử dụng ví coins', user.role.canAccessWallet),
+                      _buildPermissionRow('Quản lý gói coins', user.role.canManageCoinPackages),
                     ],
                   ),
                 ),
                 const SizedBox(height: 18),
 
                 // Các nút hành động
+                if (user.role.canManageCoinPackages) ...[
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFFB300),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size.fromHeight(44),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.monetization_on_rounded, size: 20),
+                    label: const Text('Quản Lý Gói Coins', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const CoinPackageManagementScreen()),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ],
                 if (user.role.canManageUsers) ...[
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
@@ -438,6 +466,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ),
                   const SizedBox(height: 10),
                 ],
+
+                if (user.role.canAccessWallet)
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF6C5CE7),
+                      side: const BorderSide(color: Color(0xFF6C5CE7)),
+                      minimumSize: const Size.fromHeight(44),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.account_balance_wallet_rounded, size: 20),
+                    label: const Text('Ví Coins', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const WalletScreen()),
+                      );
+                    },
+                  ),
 
                 if (user.isGuest)
                   ElevatedButton.icon(
@@ -505,6 +552,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
+  String _formatCoins(int n) {
+    if (n < 1000) return n.toString();
+    return n.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (m) => '${m[1]},',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -550,6 +605,41 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
             onPressed: () => _theme.toggleTheme(),
           ),
+
+          // Nút Ví Coins (chỉ hiển thị cho user đã đăng nhập)
+          if (!currentUser.isGuest)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: InkWell(
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const WalletScreen()),
+                  );
+                },
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFFB300), Color(0xFFFF6B6B)],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.monetization_on_rounded, color: Colors.white, size: 14),
+                      const SizedBox(width: 3),
+                      Text(
+                        _formatCoins(_wallet.balance),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           // Nút chuyển đổi chế độ xem Grid (Lưới) / List (Danh sách)
           IconButton(
