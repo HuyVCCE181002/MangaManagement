@@ -13,12 +13,12 @@ import '../widgets/bookmark_detail_dialog.dart';
 import 'detail_screen.dart';
 import 'form_screen.dart';
 import 'login_screen.dart';
-import 'register_screen.dart';
-import 'forgot_password_screen.dart';
 import 'user_management_screen.dart';
 import 'wallet_screen.dart';
 import 'coin_package_management_screen.dart';
 import 'profile_screen.dart';
+import '../services/daily_check_in_service.dart';
+import '../widgets/daily_check_in_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -32,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final AuthService _auth = AuthService.instance;
   final ThemeService _theme = ThemeService.instance;
   final WalletService _wallet = WalletService.instance;
+  final DailyCheckInService _dailyCheckIn = DailyCheckInService.instance;
 
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
@@ -43,6 +44,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   bool _isLoading = true;
   bool _isGridView = true; // Mặc định hiển thị dạng lưới bìa Manga chân thực
 
+  String? _cachedUserId;
+
   @override
   void initState() {
     super.initState();
@@ -53,14 +56,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _auth.addListener(_onStateChanged);
     _theme.addListener(_onStateChanged);
     _wallet.addListener(_onStateChanged);
+    _dailyCheckIn.addListener(_onStateChanged);
+    _cachedUserId = _auth.currentUser.id;
     _loadMangas();
   }
 
   void _onStateChanged() {
-    if (mounted) {
+    if (!mounted) return;
+    final currentUserId = _auth.currentUser.id;
+    // Chỉ nạp lại dữ liệu nếu tài khoản thay đổi thực sự (login/logout/chuyển user)
+    if (_cachedUserId != currentUserId) {
+      _cachedUserId = currentUserId;
       _loadBookmarks();
-      setState(() {});
+      if (!_auth.currentUser.isGuest) {
+        _dailyCheckIn.loadForUser(currentUserId);
+      }
     }
+    setState(() {});
   }
 
   Future<void> _loadBookmarks() async {
@@ -97,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _auth.removeListener(_onStateChanged);
     _theme.removeListener(_onStateChanged);
     _wallet.removeListener(_onStateChanged);
+    _dailyCheckIn.removeListener(_onStateChanged);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -134,240 +147,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return list.first;
   }
 
-  void _showLoginDialog() {
-    final usernameCtrl = TextEditingController();
-    final passwordCtrl = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    bool obscurePassword = true;
-    bool isLoading = false;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          final theme = Theme.of(context);
-          final isDark = theme.brightness == Brightness.dark;
-
-          return Dialog(
-            backgroundColor: theme.cardColor,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-              side: BorderSide(
-                color: isDark ? const Color(0xFF262A3B) : const Color(0xFFE2E5EE),
-              ),
-            ),
-            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Header: Icon + Title + Close button
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF6C5CE7).withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Icon(Icons.login_rounded, color: Color(0xFF6C5CE7), size: 22),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                'Đăng Nhập',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.onSurface,
-                                ),
-                              ),
-                            ],
-                          ),
-                          IconButton(
-                            icon: Icon(Icons.close_rounded, color: theme.colorScheme.onSurfaceVariant, size: 20),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            tooltip: 'Đóng',
-                            onPressed: () => Navigator.pop(ctx),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Đăng nhập để sử dụng đầy đủ các tính năng',
-                        style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
-                      ),
-                      const SizedBox(height: 18),
-
-                      // Username field
-                      TextFormField(
-                        controller: usernameCtrl,
-                        style: TextStyle(color: theme.colorScheme.onSurface),
-                        decoration: InputDecoration(
-                          labelText: 'Tên đăng nhập',
-                          prefixIcon: const Icon(Icons.person_outline_rounded, color: Color(0xFF6C5CE7)),
-                          filled: true,
-                          fillColor: isDark ? const Color(0xFF161924) : const Color(0xFFE9EDF5),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Vui lòng nhập tên đăng nhập' : null,
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Password field
-                      TextFormField(
-                        controller: passwordCtrl,
-                        obscureText: obscurePassword,
-                        style: TextStyle(color: theme.colorScheme.onSurface),
-                        decoration: InputDecoration(
-                          labelText: 'Mật khẩu',
-                          prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xFF6C5CE7)),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              obscurePassword ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            onPressed: () => setDialogState(() => obscurePassword = !obscurePassword),
-                          ),
-                          filled: true,
-                          fillColor: isDark ? const Color(0xFF161924) : const Color(0xFFE9EDF5),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Vui lòng nhập mật khẩu' : null,
-                      ),
-                      const SizedBox(height: 6),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () {
-                            final inputUsername = usernameCtrl.text.trim();
-                            Navigator.pop(ctx);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ForgotPasswordScreen(
-                                  initialUsername: inputUsername,
-                                ),
-                              ),
-                            );
-                          },
-                          style: TextButton.styleFrom(
-                            foregroundColor: const Color(0xFF6C5CE7),
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                          ),
-                          child: const Text(
-                            'Quên mật khẩu?',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Nút Đăng nhập
-                      ElevatedButton(
-                        onPressed: isLoading
-                            ? null
-                            : () async {
-                                if (!formKey.currentState!.validate()) return;
-                                final messenger = ScaffoldMessenger.of(context);
-                                final navigator = Navigator.of(ctx);
-                                setDialogState(() => isLoading = true);
-                                final res = await _auth.login(usernameCtrl.text, passwordCtrl.text);
-                                setDialogState(() => isLoading = false);
-
-                                if (res.success) {
-                                  navigator.pop();
-                                  messenger.showSnackBar(
-                                    SnackBar(
-                                      content: Text(res.message),
-                                      backgroundColor: const Color(0xFF00B894),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
-                                  _loadMangas();
-                                } else {
-                                  messenger.showSnackBar(
-                                    SnackBar(
-                                      content: Text(res.message),
-                                      backgroundColor: const Color(0xFFD63031),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
-                                }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF6C5CE7),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 2,
-                        ),
-                        child: isLoading
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                              )
-                            : const Text(
-                                'Đăng Nhập',
-                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                              ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Link Đăng ký
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            'Chưa có tài khoản? ',
-                            style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurfaceVariant),
-                          ),
-                          GestureDetector(
-                            onTap: () async {
-                              final navigator = Navigator.of(context);
-                              Navigator.pop(ctx);
-                              final registered = await navigator.push<bool>(
-                                MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                              );
-                              if (registered == true) {
-                                _loadMangas();
-                              }
-                            },
-                            child: const Text(
-                              'Đăng ký ngay',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF6C5CE7),
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
+  void _openLoginScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
   }
 
@@ -509,6 +292,28 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         context,
                         MaterialPageRoute(builder: (_) => const ProfileScreen()),
                       );
+                    },
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Nút Điểm Danh Hàng Ngày
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFFFB800),
+                      side: const BorderSide(color: Color(0xFFFFB800)),
+                      minimumSize: const Size.fromHeight(44),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.event_available_rounded, size: 20),
+                    label: Text(
+                      _dailyCheckIn.hasCheckedInToday
+                          ? 'Đã Điểm Danh (Chuỗi: ${_dailyCheckIn.currentStreak} ngày)'
+                          : 'Điểm Danh Hàng Ngày (Nhận Coins)',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      DailyCheckInDialog.show(context);
                     },
                   ),
                   const SizedBox(height: 10),
@@ -695,6 +500,35 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             onPressed: () => _theme.toggleTheme(),
           ),
 
+          // Nút Điểm Danh Hàng Ngày Nhận Coins
+          IconButton(
+            tooltip: 'Điểm danh hàng ngày',
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(
+                  Icons.event_available_rounded,
+                  color: Color(0xFFFFB800),
+                ),
+                if (!currentUser.isGuest && !_dailyCheckIn.hasCheckedInToday)
+                  Positioned(
+                    top: -2,
+                    right: -2,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1.5),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            onPressed: () => DailyCheckInDialog.show(context),
+          ),
+
           // Nút Ví Coins (chỉ hiển thị cho user đã đăng nhập)
           if (!currentUser.isGuest)
             Padding(
@@ -754,7 +588,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                     icon: const Icon(Icons.login_rounded, size: 16),
                     label: const Text('Đăng nhập', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    onPressed: _showLoginDialog,
+                    onPressed: _openLoginScreen,
                   )
                 : InkWell(
                     onTap: _showProfileDialog,
@@ -875,7 +709,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
-                        onPressed: _showLoginDialog,
+                        onPressed: _openLoginScreen,
                         child: const Text('Đăng nhập', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                       ),
                     ],
@@ -1420,7 +1254,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
               icon: const Icon(Icons.login_rounded, size: 18),
               label: const Text('Đăng Nhập / Đăng Ký Ngay', style: TextStyle(fontWeight: FontWeight.bold)),
-              onPressed: _showLoginDialog,
+              onPressed: _openLoginScreen,
             ),
           ],
         ),

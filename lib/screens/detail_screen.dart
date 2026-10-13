@@ -6,9 +6,11 @@ import '../services/auth_guard.dart';
 import '../services/auth_service.dart';
 import '../services/chapter_service.dart';
 import '../services/services.dart';
+import '../services/wallet_service.dart';
 import 'chapter_form_screen.dart';
 import 'chapter_reader_screen.dart';
 import 'form_screen.dart';
+import 'wallet_screen.dart';
 
 class MangaDetailScreen extends StatefulWidget {
   final String mangaId;
@@ -83,7 +85,16 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
 
     if (!context.mounted) return;
 
+    final user = _auth.currentUser;
+    // Đồng bộ số dư ví mới nhất của user
+    await WalletService.instance.loadWallet(user.id);
+    if (!context.mounted) return;
+
+    final wallet = WalletService.instance;
+    final int requiredCoins = chapter.price.toInt();
+    final bool hasEnoughCoins = requiredCoins <= 0 || wallet.balance >= requiredCoins;
     final theme = Theme.of(context);
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -104,7 +115,7 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               'Bạn có muốn mở khóa Chương ${chapter.chapterNumber}: "${chapter.title}"?',
               style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -117,12 +128,61 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                   const Icon(Icons.monetization_on_rounded, color: Color(0xFFE17055), size: 20),
                   const SizedBox(width: 8),
                   Text(
-                    'Giá: ${chapter.price.toInt()} xu',
+                    'Giá: $requiredCoins xu',
                     style: const TextStyle(color: Color(0xFFE17055), fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: hasEnoughCoins
+                    ? const Color(0xFF00B894).withValues(alpha: 0.08)
+                    : const Color(0xFFD63031).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: hasEnoughCoins
+                      ? const Color(0xFF00B894).withValues(alpha: 0.3)
+                      : const Color(0xFFD63031).withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        hasEnoughCoins ? Icons.account_balance_wallet_rounded : Icons.warning_amber_rounded,
+                        color: hasEnoughCoins ? const Color(0xFF00B894) : const Color(0xFFD63031),
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Số dư hiện có:',
+                        style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '${wallet.balance} xu',
+                    style: TextStyle(
+                      color: hasEnoughCoins ? const Color(0xFF00B894) : const Color(0xFFD63031),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (!hasEnoughCoins) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Số dư không đủ! Bạn còn thiếu ${requiredCoins - wallet.balance} xu để mở khóa chương này.',
+                style: const TextStyle(color: Color(0xFFD63031), fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ],
           ],
         ),
         actions: [
@@ -130,21 +190,60 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Hủy', style: TextStyle(color: Colors.grey)),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6C5CE7),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          if (!hasEnoughCoins)
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFFB300),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Nạp Thêm Coins', style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: () {
+                Navigator.pop(ctx, false);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WalletScreen()),
+                );
+              },
+            )
+          else
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6C5CE7),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Xác nhận mua', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Xác nhận mua', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
         ],
       ),
     );
 
     if (confirmed == true && context.mounted) {
-      final user = _auth.currentUser;
+      if (requiredCoins > 0) {
+        // Thực hiện trừ coins và kiểm tra số dư ở tầng WalletService
+        final spendResult = await WalletService.instance.spendCoins(
+          userId: user.id,
+          amount: requiredCoins,
+          description: 'Mua Chương ${chapter.chapterNumber}: ${chapter.title}',
+        );
+
+        if (!spendResult.success) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(spendResult.message),
+                backgroundColor: const Color(0xFFD63031),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          return;
+        }
+      }
+
       await ChapterService.instance.purchaseChapter(user.id, chapter.id);
       await _loadChapters();
 
@@ -155,7 +254,7 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               children: [
                 const Icon(Icons.check_circle_rounded, color: Colors.white),
                 const SizedBox(width: 10),
-                Text('Đã mở khóa thành công Chương ${chapter.chapterNumber}!'),
+                Text('Đã mở khóa thành công Chương ${chapter.chapterNumber}! (Đã trừ $requiredCoins xu)'),
               ],
             ),
             backgroundColor: const Color(0xFF00B894),

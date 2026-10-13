@@ -6,6 +6,7 @@ import '../models/user.dart';
 import '../models/wallet.dart';
 import '../models/coin_transaction.dart';
 import '../models/coin_package.dart';
+import '../models/daily_check_in.dart';
 
 class DatabaseHelper {
   static const String _dbName = 'manga_vault.db';
@@ -19,6 +20,8 @@ class DatabaseHelper {
   static const String tableWallets = 'wallets';
   static const String tableCoinTransactions = 'coin_transactions';
   static const String tableCoinPackages = 'coin_packages';
+  static const String tableUserCheckInStats = 'user_check_in_stats';
+  static const String tableDailyCheckInHistory = 'daily_check_in_history';
 
   static final DatabaseHelper instance = DatabaseHelper._internal();
   DatabaseHelper._internal();
@@ -78,6 +81,40 @@ class DatabaseHelper {
         FOREIGN KEY (user_id) REFERENCES $tableUsers (id) ON DELETE CASCADE,
         FOREIGN KEY (manga_id) REFERENCES $tableMangas (id) ON DELETE CASCADE,
         FOREIGN KEY (chapter_id) REFERENCES $tableChapters (id) ON DELETE CASCADE
+      )
+    ''');
+
+    // Đảm bảo các bảng coin luôn tồn tại
+    await _createCoinTables(db);
+    await _addColumnIfMissing(db, tableCoinTransactions, 'user_id', 'TEXT');
+    await _addColumnIfMissing(db, tableCoinTransactions, 'coins_before', 'INTEGER DEFAULT 0');
+    await _addColumnIfMissing(db, tableCoinTransactions, 'coins_after', 'INTEGER DEFAULT 0');
+    await _addColumnIfMissing(db, tableCoinTransactions, 'payment_method', 'TEXT');
+    await _addColumnIfMissing(db, tableCoinTransactions, 'package_id', 'TEXT');
+
+    // Đảm bảo bảng user_check_in_stats luôn tồn tại
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableUserCheckInStats (
+        user_id TEXT PRIMARY KEY,
+        last_check_in_date TEXT NOT NULL,
+        current_streak INTEGER NOT NULL DEFAULT 0,
+        total_check_ins INTEGER NOT NULL DEFAULT 0,
+        total_reward_coins INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES $tableUsers (id) ON DELETE CASCADE
+      )
+    ''');
+
+    // Đảm bảo bảng daily_check_in_history luôn tồn tại
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableDailyCheckInHistory (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        check_in_date TEXT NOT NULL,
+        streak_day INTEGER NOT NULL,
+        reward_coins INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES $tableUsers (id) ON DELETE CASCADE
       )
     ''');
 
@@ -1031,12 +1068,12 @@ class DatabaseHelper {
   Future<List<CoinTransaction>> getTransactionsByUserId(String userId) async {
     final db = await database;
     final wallet = await getWalletByUserId(userId);
-    if (wallet == null) return [];
+    final walletId = wallet?.id ?? 'wallet_$userId';
 
     final List<Map<String, dynamic>> maps = await db.query(
       tableCoinTransactions,
-      where: 'wallet_id = ?',
-      whereArgs: [wallet.id],
+      where: 'user_id = ? OR wallet_id = ?',
+      whereArgs: [userId, walletId],
       orderBy: 'created_at DESC',
     );
     return maps.map((map) => CoinTransaction.fromMap(map)).toList();
@@ -1044,9 +1081,11 @@ class DatabaseHelper {
 
   Future<int> insertTransaction(CoinTransaction tx) async {
     final db = await database;
+    final map = tx.toMap();
+    map['wallet_id'] = 'wallet_${tx.userId}';
     return await db.insert(
       tableCoinTransactions,
-      tx.toMap(),
+      map,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -1085,5 +1124,55 @@ class DatabaseHelper {
       return CoinPackage.fromMap(maps.first);
     }
     return null;
+  }
+
+  // ===================== CRUD DAILY CHECK-IN =====================
+
+  /// Lấy thông tin thống kê điểm danh của user
+  Future<UserCheckInStats?> getUserCheckInStats(String userId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      tableUserCheckInStats,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      limit: 1,
+    );
+    if (maps.isNotEmpty) {
+      return UserCheckInStats.fromMap(maps.first);
+    }
+    return null;
+  }
+
+  /// Lưu/cập nhật thông tin thống kê điểm danh của user
+  Future<int> saveUserCheckInStats(UserCheckInStats stats) async {
+    final db = await database;
+    return await db.insert(
+      tableUserCheckInStats,
+      stats.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Ghi nhận 1 lượt điểm danh vào lịch sử
+  Future<int> insertCheckInHistory(DailyCheckInHistoryItem item) async {
+    final db = await database;
+    return await db.insert(
+      tableDailyCheckInHistory,
+      item.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Lấy danh sách lịch sử điểm danh của user
+  Future<List<DailyCheckInHistoryItem>> getCheckInHistory(String userId, {int limit = 14}) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      tableDailyCheckInHistory,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'created_at DESC',
+      limit: limit,
+    );
+    return maps.map((map) => DailyCheckInHistoryItem.fromMap(map)).toList();
   }
 }

@@ -8,6 +8,8 @@ import 'coin_package_management_screen.dart';
 import 'form_screen.dart';
 import 'user_management_screen.dart';
 import 'wallet_screen.dart';
+import '../services/daily_check_in_service.dart';
+import '../widgets/daily_check_in_dialog.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -20,6 +22,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final AuthService _auth = AuthService.instance;
   final WalletService _wallet = WalletService.instance;
   final ThemeService _theme = ThemeService.instance;
+  final DailyCheckInService _dailyCheckIn = DailyCheckInService.instance;
 
   @override
   void initState() {
@@ -27,6 +30,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _auth.addListener(_onStateChanged);
     _wallet.addListener(_onStateChanged);
     _theme.addListener(_onStateChanged);
+    _dailyCheckIn.addListener(_onStateChanged);
+    final user = _auth.currentUser;
+    if (!user.isGuest) {
+      _dailyCheckIn.loadForUser(user.id);
+    }
   }
 
   @override
@@ -34,6 +42,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _auth.removeListener(_onStateChanged);
     _wallet.removeListener(_onStateChanged);
     _theme.removeListener(_onStateChanged);
+    _dailyCheckIn.removeListener(_onStateChanged);
     super.dispose();
   }
 
@@ -310,6 +319,97 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 18),
                 ],
+
+                // ============================================================
+                // THẺ ĐIỂM DANH HÀNG NGÀY (DAILY CHECK-IN)
+                // ============================================================
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isDark
+                          ? [const Color(0xFF261D3B), const Color(0xFF1B192E)]
+                          : [const Color(0xFFFBF0FF), const Color(0xFFF3E8FF)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFFFB800).withValues(alpha: 0.35)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFB800).withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Text('🔥', style: TextStyle(fontSize: 26)),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Text(
+                                  'Điểm Danh Hàng Ngày',
+                                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(width: 6),
+                                if (!_dailyCheckIn.hasCheckedInToday)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.redAccent,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      'CHƯA NHẬN',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              _dailyCheckIn.hasCheckedInToday
+                                  ? 'Đã nhận hôm nay (Chuỗi: ${_dailyCheckIn.currentStreak} ngày)'
+                                  : 'Chuỗi: ${_dailyCheckIn.currentStreak} ngày • Nhận ngay quà hôm nay!',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _dailyCheckIn.hasCheckedInToday
+                              ? Colors.grey.withValues(alpha: 0.3)
+                              : const Color(0xFFFFB800),
+                          foregroundColor: _dailyCheckIn.hasCheckedInToday
+                              ? Colors.white70
+                              : Colors.black,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: () => DailyCheckInDialog.show(context),
+                        child: Text(
+                          _dailyCheckIn.hasCheckedInToday ? 'Xem Quà' : 'Điểm Danh',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
 
                 // ============================================================
                 // CÁC THAO TÁC TÀI KHOẢN (ACCOUNT ACTIONS)
