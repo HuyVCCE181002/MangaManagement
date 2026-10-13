@@ -49,6 +49,9 @@ enum UserRole {
   bool get canTrackProgress => this != UserRole.guest;
   bool get canAddManga => this == UserRole.staff || this == UserRole.admin;
   bool get canEditManga => this == UserRole.staff || this == UserRole.admin;
+  bool get canCreateChapter => this == UserRole.staff;
+  bool get canEditChapter => this == UserRole.staff;
+  bool get canDeleteChapter => this == UserRole.staff;
   bool get canDeleteManga => this == UserRole.admin;
   bool get canManageUsers => this == UserRole.admin;
   bool get canAccessWallet => this != UserRole.guest;

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import '../models/manga.dart';
 import '../models/user.dart';
+import '../models/bookmark.dart';
 import '../services/auth_guard.dart';
 import '../services/auth_service.dart';
 import '../services/services.dart';
 import '../services/theme_service.dart';
 import '../services/wallet_service.dart';
 import '../widgets/manga_card.dart';
+import '../widgets/bookmark_detail_dialog.dart';
 import 'detail_screen.dart';
 import 'form_screen.dart';
 import 'login_screen.dart';
@@ -33,6 +35,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final TextEditingController _searchController = TextEditingController();
 
   List<Manga> _allMangas = [];
+  List<BookmarkDetail> _userBookmarks = [];
   String _searchQuery = '';
   String _selectedGenre = 'Tất cả';
   bool _isLoading = true;
@@ -41,7 +44,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -52,7 +55,39 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _onStateChanged() {
-    if (mounted) setState(() {});
+    if (mounted) {
+      _loadBookmarks();
+      setState(() {});
+    }
+  }
+
+  Future<void> _loadBookmarks() async {
+    final currentUser = _auth.currentUser;
+    if (!currentUser.isGuest) {
+      final bookmarks = await DatabaseHelper.instance.getUserBookmarks(currentUser.id);
+      if (mounted) {
+        setState(() {
+          _userBookmarks = bookmarks;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _userBookmarks = [];
+        });
+      }
+    }
+  }
+
+  Future<void> _loadMangas() async {
+    setState(() => _isLoading = true);
+    final data = await _service.getMangas();
+    await _loadBookmarks();
+    if (!mounted) return;
+    setState(() {
+      _allMangas = data;
+      _isLoading = false;
+    });
   }
 
   @override
@@ -65,14 +100,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
-  Future<void> _loadMangas() async {
-    setState(() => _isLoading = true);
-    final list = await _service.getMangas();
-    setState(() {
-      _allMangas = list;
-      _isLoading = false;
-    });
-  }
+//   Future<void> _loadMangas() async {
+//     setState(() => _isLoading = true);
+//     final list = await _service.getMangas();
+//     setState(() {
+//       _allMangas = list;
+//       _isLoading = false;
+//     });
+//   }
 
   List<Manga> get _filteredMangas {
     return _allMangas.where((m) {
@@ -717,9 +752,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.bookmarks_outlined, size: 18),
+                  const Icon(Icons.favorite_border_rounded, size: 18),
                   const SizedBox(width: 6),
-                  Text('Tủ sách (${displayFavorites.length})'),
+                  Text('Yêu thích (${displayFavorites.length})'),
+                ],
+              ),
+            ),
+            Tab(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.bookmark_border, size: 18),
+                  const SizedBox(width: 6),
+                  Text('Bookmark (${_userBookmarks.length})'),
                 ],
               ),
             ),
@@ -843,12 +888,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
                           // Tab 2: Tủ sách yêu thích
                           currentUser.isGuest
-                              ? _buildGuestFavoritesPrompt()
+                              ? _buildGuestPrompt('Tủ sách yêu thích cá nhân', Icons.favorite_border_rounded)
                               : _buildMangaDisplay(
                                   displayFavorites,
                                   emptyMessage: 'Chưa có bộ truyện nào trong tủ sách yêu thích.',
                                   showBannerAndShelf: false,
                                 ),
+
+                          // Tab 3: Bookmark
+                          currentUser.isGuest
+                              ? _buildGuestPrompt('Đánh dấu trang (Bookmark)', Icons.bookmark_border)
+                              : _buildBookmarkTab(),
                         ],
                       ),
               ),
@@ -974,11 +1024,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         return MangaContinueReadingCard(
                           manga: m,
                           onTap: () async {
-                            final changed = await Navigator.push<bool>(
+                            await Navigator.push<bool>(
                               context,
                               MaterialPageRoute(builder: (_) => MangaDetailScreen(mangaId: m.id)),
                             );
-                            if (changed == true) _loadMangas();
+                            _loadMangas();
                           },
                           onQuickNextChapter: () async {
                             if (m.currentChapter < m.totalChapters) {
@@ -1059,11 +1109,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         return MangaGridCard(
                           manga: manga,
                           onTap: () async {
-                            final changed = await Navigator.push<bool>(
+                            await Navigator.push<bool>(
                               context,
                               MaterialPageRoute(builder: (_) => MangaDetailScreen(mangaId: manga.id)),
                             );
-                            if (changed == true) _loadMangas();
+                            _loadMangas();
                           },
                           onFavoriteToggle: () => _handleFavoriteToggle(manga.id),
                         );
@@ -1084,11 +1134,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     return MangaCard(
                       manga: manga,
                       onTap: () async {
-                        final changed = await Navigator.push<bool>(
+                        await Navigator.push<bool>(
                           context,
                           MaterialPageRoute(builder: (_) => MangaDetailScreen(mangaId: manga.id)),
                         );
-                        if (changed == true) _loadMangas();
+                        _loadMangas();
                       },
                       onFavoriteToggle: () => _handleFavoriteToggle(manga.id),
                     );
@@ -1241,11 +1291,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                           ),
                           onPressed: () async {
-                            final changed = await Navigator.push<bool>(
+                            await Navigator.push<bool>(
                               context,
                               MaterialPageRoute(builder: (_) => MangaDetailScreen(mangaId: manga.id)),
                             );
-                            if (changed == true) _loadMangas();
+                            _loadMangas();
                           },
                         ),
                       ],
@@ -1272,8 +1322,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _loadMangas();
   }
 
-  /// Giao diện khi Khách mở Tab Yêu thích
-  Widget _buildGuestFavoritesPrompt() {
+  /// Giao diện khi Khách mở Tab Yêu thích / Bookmark
+  Widget _buildGuestPrompt(String title, IconData icon) {
     final theme = Theme.of(context);
     return Center(
       child: Padding(
@@ -1281,10 +1331,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.bookmarks_outlined, size: 58, color: Color(0xFF6C5CE7)),
+            Icon(icon, size: 58, color: const Color(0xFF6C5CE7)),
             const SizedBox(height: 14),
             Text(
-              'Tủ sách yêu thích cá nhân',
+              title,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface),
             ),
             const SizedBox(height: 8),
@@ -1308,6 +1358,56 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
         ),
       ),
+    );
+  }
+
+  /// Tab Bookmark hiển thị danh sách các bookmark của user
+  Widget _buildBookmarkTab() {
+    if (_userBookmarks.isEmpty) {
+      return const Center(
+        child: Text('Bạn chưa đánh dấu trang nào.'),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _userBookmarks.length,
+      itemBuilder: (context, index) {
+        final detail = _userBookmarks[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: ListTile(
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                detail.coverUrl,
+                width: 50,
+                height: 70,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(width: 50, color: Colors.grey),
+              ),
+            ),
+            title: Text(
+              detail.mangaTitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text('Đang đọc: Chương ${detail.chapterNumber}'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              showDialog(
+                context: context,
+                builder: (context) => BookmarkDetailDialog(
+                  detail: detail,
+                  onBookmarkDeleted: () {
+                    _loadBookmarks();
+                  },
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
