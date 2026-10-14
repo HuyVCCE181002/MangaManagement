@@ -44,4 +44,20 @@ class BookmarkDetail {
     required this.chapterTitle,
     required this.chapterNumber,
   });
+
+  /// Khởi tạo từ Map kết quả JOIN bookmarks + mangas + chapters
+  factory BookmarkDetail.fromMap(Map<String, dynamic> map) {
+    return BookmarkDetail(
+      bookmark: Bookmark(
+        userId: map['user_id'] as String,
+        mangaId: map['manga_id'] as String,
+        chapterId: map['chapter_id'] as String,
+        createdAt: DateTime.parse(map['created_at'] as String),
+      ),
+      mangaTitle: (map['manga_title'] as String?) ?? '',
+      coverUrl: (map['cover_url'] as String?) ?? '',
+      chapterTitle: (map['chapter_title'] as String?) ?? '',
+      chapterNumber: (map['chapter_number'] as num?)?.toInt() ?? 0,
+    );
+  }
 }

@@ -1,0 +1,10 @@
+{
+  "packages": [
+    {"id":"pkg_1","name":"Starter Pack","coins":100,"bonusCoins":0,"price":10000},
+    {"id":"pkg_2","name":"Bronze Pack","coins":500,"bonusCoins":50,"price":45000},
+    {"id":"pkg_3","name":"Silver Pack","coins":1000,"bonusCoins":150,"price":85000},
+    {"id":"pkg_4","name":"Gold Pack","coins":2000,"bonusCoins":400,"price":160000},
+    {"id":"pkg_5","name":"VIP Pack","coins":5000,"bonusCoins":1250,"price":380000}
+  ],
+  "promotions": {"MANGA10":10,"WELCOME":15,"VIP20":20}
+}

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/coin_package.dart';
@@ -20,19 +22,29 @@ class _WalletScreenState extends State<WalletScreen> {
   final AuthService _auth = AuthService.instance;
   final WalletService _wallet = WalletService.instance;
   final CoinPackageService _pkgService = CoinPackageService.instance;
+  Timer? _packageRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     _wallet.addListener(_onChange);
     _auth.addListener(_onChange);
+    _pkgService.addListener(_onChange);
     _refresh();
+    // A reader may already have WalletScreen open while an Admin updates the
+    // shared local database. Refresh the active catalog without requiring a
+    // manual navigation or app restart.
+    _packageRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted && _auth.isLoggedIn) _pkgService.loadAll();
+    });
   }
 
   @override
   void dispose() {
     _wallet.removeListener(_onChange);
     _auth.removeListener(_onChange);
+    _pkgService.removeListener(_onChange);
+    _packageRefreshTimer?.cancel();
     super.dispose();
   }
 
@@ -43,6 +55,11 @@ class _WalletScreenState extends State<WalletScreen> {
   Future<void> _refresh() async {
     if (_auth.isLoggedIn) {
       await _wallet.loadWallet(_auth.currentUser.id);
+      try {
+        await _wallet.recoverServerPayments(_auth.currentUser);
+      } catch (_) {
+        // Cached wallet remains available if the payment server is offline.
+      }
       await _pkgService.loadAll();
     }
   }

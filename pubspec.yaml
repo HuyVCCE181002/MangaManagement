@@ -36,6 +36,13 @@ dependencies:
   cupertino_icons: ^1.0.8
   shared_preferences: ^2.5.5
   uuid: ^4.6.0
+  http: ^1.2.2
+  sqflite: ^2.4.2+1
+  path: ^1.9.1
+  # sqflite_common đã thêm để fix depend_on_referenced_packages
+  sqflite_common: ^2.5.13+1
+  sqflite_common_ffi: ^2.4.0+3
+  sqflite_common_ffi_web: ^1.2.0
   http: ^1.6.0
   sqflite: ^2.4.2
   sqflite_common: ^2.5.6
@@ -64,6 +71,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/payment/payment_qr.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

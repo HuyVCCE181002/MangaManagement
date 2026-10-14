@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
@@ -9,6 +10,10 @@ import 'services/daily_check_in_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Bật accessibility/semantics tree cho Flutter web để browser DevTools
+  // và accessibility tools có thể thấy text field, button, etc.
+  // Cần thiết cho việc auto-test bằng browser tooling.
+  SemanticsBinding.instance.ensureSemantics();
   // Khởi tạo Database SQLite trước
   await DatabaseHelper.instance.database;
 
@@ -20,6 +25,12 @@ Future<void> main() async {
 
   // Nếu đã đăng nhập, load ví và dữ liệu điểm danh ngay
   if (AuthService.instance.isLoggedIn) {
+    await WalletService.instance.loadWallet(AuthService.instance.currentUser.id);
+    try {
+      await WalletService.instance.recoverServerPayments(AuthService.instance.currentUser);
+    } catch (_) {
+      // The local wallet remains available while the payment backend is offline.
+    }
     await Future.wait([
       WalletService.instance.loadWallet(AuthService.instance.currentUser.id),
       DailyCheckInService.instance.loadForUser(AuthService.instance.currentUser.id),
