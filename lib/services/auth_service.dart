@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/user.dart';
 import 'database_helper.dart';
 import 'wallet_service.dart';
+import 'daily_check_in_service.dart';
 
 class AuthService extends ChangeNotifier {
   static const String _currentSessionKey = 'manga_vault_current_session_v1';
@@ -67,7 +68,7 @@ class AuthService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_currentSessionKey, user.id);
 
-    // Load ví của user vừa đăng nhập
+    // Load ví và thông tin điểm danh của user vừa đăng nhập
     await WalletService.instance.loadWallet(user.id);
     // Reconcile all server-confirmed payment receipts before the app renders
     // the wallet, so coins are visible immediately after login.
@@ -76,6 +77,7 @@ class AuthService extends ChangeNotifier {
     } catch (_) {
       // Keep the locally cached wallet available when the payment backend is offline.
     }
+    await DailyCheckInService.instance.loadForUser(user.id);
 
     notifyListeners();
 
@@ -126,8 +128,9 @@ class AuthService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_currentSessionKey, newUser.id);
 
-    // Tạo ví cho user mới
+    // Tạo ví và khởi tạo điểm danh cho user mới
     await WalletService.instance.loadWallet(newUser.id);
+    await DailyCheckInService.instance.loadForUser(newUser.id);
 
     notifyListeners();
 
@@ -140,6 +143,7 @@ class AuthService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_currentSessionKey);
     WalletService.instance.clearCache();
+    DailyCheckInService.instance.clearCache();
     notifyListeners();
   }
 
@@ -149,6 +153,7 @@ class AuthService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_currentSessionKey);
     WalletService.instance.clearCache();
+    DailyCheckInService.instance.clearCache();
     notifyListeners();
   }
 
@@ -212,6 +217,164 @@ class AuthService extends ChangeNotifier {
     return (
       success: true,
       message: 'Đã xóa tài khoản @${targetUser.username} (${targetUser.displayName}) và toàn bộ ví, giao dịch liên quan.',
+    );
+  }
+
+  /// Cập nhật tên hiển thị cá nhân (Edit Profile)
+  Future<({bool success, String message})> updateProfile({
+    required String displayName,
+    String? avatarUrl,
+  }) async {
+    if (isGuest) {
+      return (success: false, message: 'Bạn chưa đăng nhập tài khoản!');
+    }
+
+    final cleanName = displayName.trim();
+    if (cleanName.isEmpty) {
+      return (success: false, message: 'Tên hiển thị không được để trống.');
+    }
+
+    if (cleanName.length < 2) {
+      return (success: false, message: 'Tên hiển thị phải có ít nhất 2 ký tự.');
+    }
+
+    if (cleanName.length > 50) {
+      return (success: false, message: 'Tên hiển thị không được vượt quá 50 ký tự.');
+    }
+
+    await DatabaseHelper.instance.updateUserProfile(
+      id: _currentUser.id,
+      displayName: cleanName,
+      avatarUrl: avatarUrl,
+    );
+
+    final updated = _currentUser.copyWith(
+      displayName: cleanName,
+      avatarUrl: avatarUrl ?? _currentUser.avatarUrl,
+    );
+    _currentUser = updated;
+
+    final index = _allUsers.indexWhere((u) => u.id == updated.id);
+    if (index != -1) {
+      _allUsers[index] = updated;
+    }
+
+    notifyListeners();
+    return (success: true, message: 'Cập nhật thông tin hồ sơ thành công!');
+  }
+
+  /// Cập nhật ảnh đại diện cá nhân (Upload / Change Avatar)
+  Future<({bool success, String message})> updateAvatar(String? avatarUrl) async {
+    if (isGuest) {
+      return (success: false, message: 'Bạn chưa đăng nhập tài khoản!');
+    }
+
+    await DatabaseHelper.instance.updateUserAvatar(_currentUser.id, avatarUrl);
+
+    final updated = _currentUser.copyWith(avatarUrl: avatarUrl);
+    _currentUser = updated;
+
+    final index = _allUsers.indexWhere((u) => u.id == updated.id);
+    if (index != -1) {
+      _allUsers[index] = updated;
+    }
+
+    notifyListeners();
+    return (
+      success: true,
+      message: avatarUrl != null && avatarUrl.isNotEmpty
+          ? 'Đổi ảnh đại diện thành công!'
+          : 'Đã khôi phục ảnh đại diện mặc định.',
+    );
+  }
+
+  /// Đổi mật khẩu cá nhân (Change Password)
+  Future<({bool success, String message})> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    if (isGuest) {
+      return (success: false, message: 'Bạn chưa đăng nhập tài khoản!');
+    }
+
+    final cleanCurrent = currentPassword.trim();
+    final cleanNew = newPassword.trim();
+
+    if (cleanCurrent.isEmpty || cleanNew.isEmpty) {
+      return (success: false, message: 'Vui lòng nhập đầy đủ mật khẩu hiện tại và mật khẩu mới.');
+    }
+
+    if (_currentUser.password != cleanCurrent) {
+      return (success: false, message: 'Mật khẩu hiện tại không chính xác. Vui lòng kiểm tra lại!');
+    }
+
+    if (cleanNew.length < 4) {
+      return (success: false, message: 'Mật khẩu mới phải có ít nhất 4 ký tự.');
+    }
+
+    if (cleanNew == cleanCurrent) {
+      return (success: false, message: 'Mật khẩu mới không được trùng với mật khẩu hiện tại.');
+    }
+
+    await DatabaseHelper.instance.updateUserPassword(_currentUser.username, cleanNew);
+
+    final updated = _currentUser.copyWith(password: cleanNew);
+    _currentUser = updated;
+
+    final index = _allUsers.indexWhere((u) => u.id == updated.id);
+    if (index != -1) {
+      _allUsers[index] = updated;
+    }
+
+    notifyListeners();
+    return (success: true, message: 'Đổi mật khẩu thành công!');
+  }
+
+  /// Người dùng tự xóa tài khoản của mình (User Delete Account)
+  /// - Kiểm tra xác nhận mật khẩu
+  /// - Nếu là Admin cuối cùng -> Ngăn chặn xóa
+  /// - Xóa xong tự động đăng xuất và chuyển về Guest
+  Future<({bool success, String message})> deleteCurrentAccount({
+    required String confirmPassword,
+  }) async {
+    if (isGuest) {
+      return (success: false, message: 'Tài khoản khách không thể xóa.');
+    }
+
+    final cleanPassword = confirmPassword.trim();
+    if (cleanPassword.isEmpty) {
+      return (success: false, message: 'Vui lòng nhập mật khẩu xác nhận để xóa tài khoản.');
+    }
+
+    if (_currentUser.password != cleanPassword) {
+      return (success: false, message: 'Mật khẩu xác nhận không chính xác!');
+    }
+
+    // Bảo vệ Admin cuối cùng
+    if (_currentUser.role == UserRole.admin) {
+      final adminCount = _allUsers.where((u) => u.role == UserRole.admin).length;
+      if (adminCount <= 1) {
+        return (
+          success: false,
+          message: 'Bạn là Quản trị viên (Admin) duy nhất của hệ thống! Không thể tự xóa tài khoản. Hãy chỉ định một tài khoản khác làm Admin trước.',
+        );
+      }
+    }
+
+    final targetId = _currentUser.id;
+    final targetName = _currentUser.displayName;
+
+    // Xóa khỏi SQLite (FOREIGN KEY ON DELETE CASCADE sẽ tự xóa ví, giao dịch, bookmarks)
+    await DatabaseHelper.instance.deleteUser(targetId);
+
+    _allUsers.removeWhere((u) => u.id == targetId);
+
+    // Đăng xuất và dọn dẹp phiên
+    await logout();
+
+    return (
+      success: true,
+      message: 'Tài khoản "$targetName" đã được xóa vĩnh viễn khỏi hệ thống.',
     );
   }
 

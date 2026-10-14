@@ -4,6 +4,7 @@ import '../models/user.dart';
 import '../models/bookmark.dart';
 import '../services/auth_service.dart';
 import '../services/database_helper.dart';
+import '../services/chapter_service.dart';
 import 'chapter_form_screen.dart';
 
 class ChapterReaderScreen extends StatefulWidget {
@@ -24,12 +25,26 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
   late Chapter _currentChapter;
   final ScrollController _scrollController = ScrollController();
   Bookmark? _currentBookmark;
+  Set<String> _purchasedChapterIds = {};
 
   @override
   void initState() {
     super.initState();
     _currentChapter = widget.chapter;
     _loadBookmark();
+    _loadPurchasedChapters();
+  }
+
+  Future<void> _loadPurchasedChapters() async {
+    final user = AuthService.instance.currentUser;
+    if (!user.isGuest) {
+      final ids = await ChapterService.instance.getPurchasedChapterIds(user.id);
+      if (mounted) {
+        setState(() {
+          _purchasedChapterIds = ids;
+        });
+      }
+    }
   }
 
   Future<void> _loadBookmark() async {
@@ -80,6 +95,24 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
   }
 
   void _goToChapter(Chapter target) {
+    final currentUser = AuthService.instance.currentUser;
+    final bool isPurchased = _purchasedChapterIds.contains(target.id);
+    final bool isStaffOrAdmin = currentUser.role == UserRole.staff || currentUser.role == UserRole.admin;
+    final bool isUnlocked = !target.isLocked || target.price <= 0 || isPurchased || isStaffOrAdmin;
+
+    if (!isUnlocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Chương ${target.chapterNumber} đang bị khóa (${target.price.toInt()} xu). Vui lòng mở khóa chương trước khi đọc!',
+          ),
+          backgroundColor: const Color(0xFFD63031),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _currentChapter = target;
     });

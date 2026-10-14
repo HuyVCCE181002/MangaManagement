@@ -1,6 +1,6 @@
 # Manga Vault - Ứng Dụng Quản Lý Truyện Tranh (Flutter & Dart)
 
-Ứng dụng quản lý truyện tranh di động viết bằng **Flutter & Dart**, sử dụng kiến trúc phân lớp cơ bản (Model - Service - Screen), lưu trữ CSDL quan hệ Offline chuẩn mực bằng **SQLite (`sqflite`)**, hỗ trợ đa nền tảng (Android, iOS, Windows).
+Ứng dụng quản lý truyện tranh viết bằng **Flutter & Dart**, backend **ASP.NET Core / C#**, lưu dữ liệu bằng **SQLite**. Lớp Flutter vẫn có SQLite trên thiết bị để chạy được khi API chưa bật.
 
 ---
 
@@ -10,14 +10,18 @@
 lib/
 ├── models/
 │   ├── manga.dart              # Model dữ liệu Manga (Mapping SQLite Map, validation)
+│   ├── genre.dart              # Model thể loại
 │   └── user.dart               # Model Người dùng & Phân quyền (Admin, Staff, Reader, Guest)
 ├── services/
 │   ├── database_helper.dart    # SQLite Database (Quản lý kết nối, tạo bảng, CRUD raw/query, seed data)
 │   ├── services.dart           # MangaService: Xử lý CRUD truyện tương tác với SQLite
+│   ├── genre_service.dart      # Nghiệp vụ thể loại
+│   ├── backend_api_service.dart # Gọi REST API C#; tự dùng SQLite cục bộ khi API tắt
 │   ├── auth_service.dart       # AuthService: Đăng ký/đăng nhập/phân quyền lưu vào SQLite
 │   └── theme_service.dart      # Quản lý giao diện Sáng/Tối
 ├── screens/
 │   ├── home_screen.dart        # Màn hình chính (Danh sách truyện, Tìm kiếm, Tab Yêu thích)
+│   ├── genre_management_screen.dart # Staff quản lý thể loại
 │   ├── detail_screen.dart      # Xem chi tiết, cập nhật tiến độ đọc, sửa/xóa
 │   ├── form_screen.dart        # Form thêm mới / chỉnh sửa truyện
 │   ├── login_screen.dart       # Đăng nhập & chế độ Khách
@@ -27,7 +31,36 @@ lib/
 ├── widgets/
 │   └── manga_card.dart         # Card hiển thị truyện
 └── main.dart                   # Điểm khởi chạy ứng dụng (Khởi tạo SQLite DB & Theme)
+
+backend/MangaManagement.Api/    # ASP.NET Core REST API, lưu manga/genre/chapter bằng SQLite
 ```
+
+## Chạy ứng dụng và backend
+
+Mở hai terminal tại thư mục gốc của repository.
+
+Terminal 1 – backend (cần cài .NET 8 SDK):
+
+```powershell
+dotnet run --project .\backend\MangaManagement.Api\MangaManagement.Api.csproj -- --urls http://0.0.0.0:5080
+```
+
+Terminal 2 – Flutter:
+
+```powershell
+flutter pub get
+flutter run -d chrome
+```
+
+Flutter web/Windows gọi `http://localhost:5080/api`; Android emulator gọi `http://10.0.2.2:5080/api`. Nếu backend không chạy, các nghiệp vụ manga/thể loại/chapter đọc tiếp tục dùng SQLite cục bộ.
+
+Tài khoản demo cục bộ: `staff / staff123` để quản lý thể loại và manga; `admin / admin123` có thể xóa manga vĩnh viễn. Staff ẩn/hiện truyện, Admin xóa vĩnh viễn. Backend demo nhận vai trò qua header nội bộ `X-User-Role`; cơ chế này chỉ phục vụ bài tập/local mock, không thay cho xác thực khi triển khai thật.
+
+## Phạm vi backlog của Lê Huỳnh Thiện Hưng
+
+- UC-11–14: xem, thêm, sửa, xóa thể loại.
+- UC-15–18: duyệt, thêm, sửa, ẩn/xóa manga. Staff quản lý nội dung; xóa vĩnh viễn vẫn theo quyền Admin có sẵn trong ứng dụng.
+- UC-24–26: tìm kiếm/lọc manga, xem chi tiết, đọc chapter. Màn hình chi tiết và trình đọc chapter hiện có được giữ lại và dùng dữ liệu từ API khi backend đang chạy.
 
 ---
 
@@ -45,8 +78,11 @@ lib/
    - `current_chapter` (INTEGER)
    - `rating` (REAL)
    - `is_favorite` (INTEGER - 0/1)
+   - `is_hidden` (INTEGER - 0/1, ẩn khỏi độc giả)
 
-2. **Bảng `users`**:
+2. **Bảng `genres`**: `id`, `name` (UNIQUE), `created_at`.
+
+3. **Bảng `users`**:
    - `id` (TEXT PRIMARY KEY)
    - `username` (TEXT UNIQUE NOT NULL)
    - `display_name` (TEXT NOT NULL)
