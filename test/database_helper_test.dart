@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:manga_management_app/models/manga.dart';
 import 'package:manga_management_app/models/user.dart';
+import 'package:manga_management_app/models/payment_order.dart';
+import 'package:manga_management_app/models/coin_transaction.dart';
 import 'package:manga_management_app/services/database_helper.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -17,14 +19,15 @@ void main() {
       await DatabaseHelper.instance.resetToDefault();
     });
 
-    test('Seed data chứa đúng 3 users (admin/staff/reader)', () async {
+    test('Seed data chứa 4 users gồm staff bổ sung', () async {
       final users = await DatabaseHelper.instance.getAllUsers();
-      expect(users.length, 3);
+      expect(users.length, 4);
 
       final usernames = users.map((u) => u.username).toSet();
       expect(usernames.contains('admin'), isTrue);
       expect(usernames.contains('staff'), isTrue);
       expect(usernames.contains('reader'), isTrue);
+      expect(usernames.contains('phatstaff'), isTrue);
     });
 
     test('Seed data chứa 6 bộ manga', () async {
@@ -147,7 +150,33 @@ void main() {
       expect(mangas.length, 6);
 
       final users = await DatabaseHelper.instance.getAllUsers();
-      expect(users.length, 3);
+      expect(users.length, 4);
+    });
+
+    test('Pending payment does not credit; verified receipt is mirrored once', () async {
+      final helper = DatabaseHelper.instance;
+      final pkg = (await helper.getAllCoinPackages()).first;
+      final now = DateTime.now();
+      PaymentOrder receipt(String status) => PaymentOrder(
+        id: 'server-order-cache-test', transferCode: 'MANGA0123456789ABCDEF',
+        package: pkg, promoCode: '', amount: pkg.price.round(), status: status,
+        createdAt: now, expiresAt: now.add(const Duration(minutes: 10)),
+        paidAt: status == 'completed' ? now : null,
+        bankBin: '970403', accountNumber: '070118746463', accountName: 'NGO VIET TRINH',
+      );
+      final pending = await helper.cacheServerPayment('reader_1', receipt('pending'));
+      expect(pending.status, TransactionStatus.pending);
+      expect((await helper.getWalletByUserId('reader_1'))!.balance, 0);
+      await Future.wait([
+        helper.cacheServerPayment('reader_1', receipt('completed')),
+        helper.cacheServerPayment('reader_1', receipt('completed')),
+      ]);
+      expect((await helper.getWalletByUserId('reader_1'))!.balance, pkg.totalCoins);
+      expect((await helper.getTransactionsByUserId('reader_1')).length, 1);
+      // A stale response cannot downgrade a completed receipt.
+      final stale = await helper.cacheServerPayment('reader_1', receipt('pending'));
+      expect(stale.status, TransactionStatus.completed);
+      expect((await helper.getWalletByUserId('reader_1'))!.balance, pkg.totalCoins);
     });
   });
 }

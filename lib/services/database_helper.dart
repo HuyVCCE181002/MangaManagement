@@ -8,6 +8,7 @@ import '../models/user.dart';
 import '../models/wallet.dart';
 import '../models/coin_transaction.dart';
 import '../models/coin_package.dart';
+import '../models/payment_order.dart';
 
 class DatabaseHelper {
   static const String _dbName = 'manga_vault.db';
@@ -1054,6 +1055,18 @@ class DatabaseHelper {
     );
   }
 
+  Future<CoinTransaction?> getTransactionById(String id) async {
+    final db = await database;
+    final maps = await db.query(
+      tableCoinTransactions,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return CoinTransaction.fromMap(maps.first);
+  }
+
   Future<int> updateTransactionStatus(String id, TransactionStatus status) async {
     final db = await database;
     return await db.update(
@@ -1065,6 +1078,50 @@ class DatabaseHelper {
   }
 
   // ===================== CRUD COIN PACKAGE =====================
+
+  /// Mirrors authenticated server receipts locally. The server ledger is the
+  /// authority; duplicate snapshots never add coins a second time.
+  Future<CoinTransaction> cacheServerPayment(String userId, PaymentOrder order) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final now = DateTime.now();
+      final wallets = await txn.query(tableWallets, where: 'user_id = ?', whereArgs: [userId]);
+      final wallet = wallets.isEmpty
+          ? Wallet(id: 'wallet_$userId', userId: userId, balance: 0, totalEarned: 0,
+              totalSpent: 0, createdAt: now, updatedAt: now)
+          : Wallet.fromMap(wallets.first);
+      if (wallets.isEmpty) await txn.insert(tableWallets, wallet.toMap());
+      final rows = await txn.query(tableCoinTransactions, where: 'id = ?', whereArgs: [order.id]);
+      final existing = rows.isEmpty ? null : CoinTransaction.fromMap(rows.first);
+      if (existing != null && existing.userId != userId) throw StateError('Payment belongs to another user.');
+      if (existing?.status == TransactionStatus.completed) return existing!;
+      final status = switch (order.status) {
+        'completed' => TransactionStatus.completed,
+        'expired' || 'failed' => TransactionStatus.failed,
+        'cancelled' => TransactionStatus.cancelled,
+        _ => TransactionStatus.pending,
+      };
+      final coins = order.package.totalCoins;
+      final balanceAfter = status == TransactionStatus.completed ? wallet.balance + coins : wallet.balance;
+      if (status == TransactionStatus.completed) {
+        await txn.update(tableWallets, {
+          'balance': balanceAfter, 'total_earned': wallet.totalEarned + coins,
+          'updated_at': now.toIso8601String(),
+        }, where: 'user_id = ?', whereArgs: [userId]);
+      }
+      final transaction = CoinTransaction(id: order.id, userId: userId, walletId: wallet.id,
+        type: TransactionType.deposit, amount: coins, coinsBefore: wallet.balance,
+        coinsAfter: balanceAfter, description: 'Nạp coins từ ${order.package.name} (${order.transferCode})',
+        paymentMethod: 'Chuyển khoản ngân hàng', packageId: order.package.id,
+        status: status, createdAt: order.paidAt ?? order.createdAt);
+      if (existing == null) {
+        await txn.insert(tableCoinTransactions, transaction.toMap());
+      } else {
+        await txn.update(tableCoinTransactions, transaction.toMap(), where: 'id = ?', whereArgs: [order.id]);
+      }
+      return transaction;
+    });
+  }
 
   Future<List<CoinPackage>> getAllCoinPackages({bool activeOnly = false}) async {
     final db = await database;

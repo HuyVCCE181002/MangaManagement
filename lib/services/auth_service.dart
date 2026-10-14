@@ -69,6 +69,13 @@ class AuthService extends ChangeNotifier {
 
     // Load ví của user vừa đăng nhập
     await WalletService.instance.loadWallet(user.id);
+    // Reconcile all server-confirmed payment receipts before the app renders
+    // the wallet, so coins are visible immediately after login.
+    try {
+      await WalletService.instance.recoverServerPayments(user);
+    } catch (_) {
+      // Keep the locally cached wallet available when the payment backend is offline.
+    }
 
     notifyListeners();
 

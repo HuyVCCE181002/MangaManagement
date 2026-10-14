@@ -3,6 +3,8 @@ import 'package:uuid/uuid.dart';
 import '../models/wallet.dart';
 import '../models/coin_transaction.dart';
 import '../models/coin_package.dart';
+import '../models/user.dart';
+import 'payment_verification_service.dart';
 import 'database_helper.dart';
 
 /// Service quản lý ví coins & giao dịch
@@ -55,25 +57,48 @@ class WalletService extends ChangeNotifier {
   /// Lấy lịch sử giao dịch (refresh)
   Future<void> refreshTransactions() async {
     if (_currentWallet == null) return;
-    _transactions = await DatabaseHelper.instance.getTransactionsByUserId(_currentWallet!.userId);
+    _transactions = await DatabaseHelper.instance.getTransactionsByUserId(
+      _currentWallet!.userId,
+    );
     notifyListeners();
   }
 
-  /// Reload danh sách packages
-  Future<void> refreshPackages() async {
-    _packages = await DatabaseHelper.instance.getAllCoinPackages(activeOnly: false);
-    notifyListeners();
+  /// Fetches the authenticated receipt itself; UI cannot supply a completed
+  /// status, coin amount or payment result for this operation.
+  Future<CoinTransaction> syncServerPayment(
+    AppUser user,
+    String orderId,
+  ) async {
+    final order = await PaymentVerificationService.instance.getOrder(
+      user,
+      orderId,
+    );
+    final transaction = await DatabaseHelper.instance.cacheServerPayment(
+      user.id,
+      order,
+    );
+    await loadWallet(user.id);
+    return transaction;
   }
 
-  /// Nạp coins (mua gói)
-  Future<({bool success, String message, CoinTransaction? transaction})> depositCoins({
+  Future<void> recoverServerPayments(AppUser user) async {
+    final orders = await PaymentVerificationService.instance.getOrders(user);
+    for (final order in orders.where((order) => order.status == 'completed')) {
+      await DatabaseHelper.instance.cacheServerPayment(user.id, order);
+    }
+    await loadWallet(user.id);
+  }
+
+  /// Tạo giao dịch nạp ở trạng thái chờ xác minh.
+  /// Không thay đổi số dư cho đến khi cổng thanh toán/backend xác nhận.
+  Future<({bool success, String message, CoinTransaction? transaction})>
+  createPendingDeposit({
     required String userId,
     required CoinPackage package,
     required String paymentMethod,
+    required String transferCode,
   }) async {
     final db = DatabaseHelper.instance;
-
-    // 1. Lấy ví hiện tại (auto-create nếu chưa có)
     var wallet = await db.getWalletByUserId(userId);
     if (wallet == null) {
       final now = DateTime.now();
@@ -90,23 +115,40 @@ class WalletService extends ChangeNotifier {
     }
 
     if (!package.isActive) {
-      return (success: false, message: 'Gói coins này hiện không khả dụng.', transaction: null);
+      return (
+        success: false,
+        message: 'Gói coins này hiện không khả dụng.',
+        transaction: null,
+      );
     }
 
-    final totalCoins = package.totalCoins;
-    final newBalance = wallet.balance + totalCoins;
-    final newTotalEarned = wallet.totalEarned + totalCoins;
+    final existingPending = (await db.getTransactionsByUserId(userId))
+        .where(
+          (tx) =>
+              tx.type == TransactionType.deposit &&
+              tx.status == TransactionStatus.pending &&
+              tx.packageId == package.id &&
+              tx.paymentMethod == paymentMethod,
+        )
+        .firstOrNull;
+    if (existingPending != null) {
+      return (
+        success: true,
+        message: 'Giao dịch này đang chờ xác minh.',
+        transaction: existingPending,
+      );
+    }
 
-    // 2. Tạo giao dịch (pending trước)
     final tx = CoinTransaction(
       id: const Uuid().v4(),
       userId: userId,
       walletId: wallet.id,
       type: TransactionType.deposit,
-      amount: totalCoins,
+      amount: package.totalCoins,
       coinsBefore: wallet.balance,
-      coinsAfter: newBalance,
-      description: 'Nạp ${_formatNumber(totalCoins)} coins từ gói "${package.name}"',
+      coinsAfter: wallet.balance,
+      description:
+          'Chờ xác minh nạp ${_formatNumber(package.totalCoins)} coins ($transferCode)',
       paymentMethod: paymentMethod,
       packageId: package.id,
       status: TransactionStatus.pending,
@@ -114,54 +156,71 @@ class WalletService extends ChangeNotifier {
     );
 
     await db.insertTransaction(tx);
-
-    // 3. Mô phỏng xử lý thanh toán
-    // Trong thực tế sẽ gọi payment gateway, ở đây giả lập thành công
-    await Future.delayed(const Duration(milliseconds: 800));
-
-    // 4. Cập nhật ví
-    await db.updateWalletBalance(userId, newBalance, newTotalEarned, wallet.totalSpent);
-
-    // 5. Cập nhật giao dịch -> completed
-    await db.updateTransactionStatus(tx.id, TransactionStatus.completed);
-    final completedTx = tx.copyWith(status: TransactionStatus.completed);
-
-    // 6. Update local cache
-    _currentWallet = wallet.copyWith(
-      balance: newBalance,
-      totalEarned: newTotalEarned,
-      updatedAt: DateTime.now(),
-    );
-    _transactions.insert(0, completedTx);
+    _currentWallet ??= wallet;
+    _transactions.insert(0, tx);
     notifyListeners();
 
     return (
       success: true,
-      message: 'Nạp thành công ${_formatNumber(totalCoins)} coins!',
-      transaction: completedTx,
+      message: 'Giao dịch đang chờ xác minh thanh toán.',
+      transaction: tx,
+    );
+  }
+
+  /// Reload danh sách packages
+  Future<void> refreshPackages() async {
+    _packages = await DatabaseHelper.instance.getAllCoinPackages(
+      activeOnly: false,
+    );
+    notifyListeners();
+  }
+
+  /// @deprecated Use [createPendingDeposit] and complete the transaction only
+  /// after a trusted payment provider confirms the payment.
+  Future<({bool success, String message, CoinTransaction? transaction})>
+  depositCoins({
+    required String userId,
+    required CoinPackage package,
+    required String paymentMethod,
+  }) {
+    return createPendingDeposit(
+      userId: userId,
+      package: package,
+      paymentMethod: paymentMethod,
+      transferCode: 'LEGACY-${DateTime.now().millisecondsSinceEpoch}',
     );
   }
 
   /// Chi tiêu coins (mua truyện/chapter)
-  Future<({bool success, String message, CoinTransaction? transaction})> spendCoins({
+  Future<({bool success, String message, CoinTransaction? transaction})>
+  spendCoins({
     required String userId,
     required int amount,
     required String description,
   }) async {
     if (amount <= 0) {
-      return (success: false, message: 'Số coins phải lớn hơn 0.', transaction: null);
+      return (
+        success: false,
+        message: 'Số coins phải lớn hơn 0.',
+        transaction: null,
+      );
     }
 
     final db = DatabaseHelper.instance;
     final wallet = await db.getWalletByUserId(userId);
     if (wallet == null) {
-      return (success: false, message: 'Không tìm thấy ví của người dùng.', transaction: null);
+      return (
+        success: false,
+        message: 'Không tìm thấy ví của người dùng.',
+        transaction: null,
+      );
     }
 
     if (wallet.balance < amount) {
       return (
         success: false,
-        message: 'Số dư không đủ. Cần ${_formatNumber(amount)} coins, hiện có ${_formatNumber(wallet.balance)} coins.',
+        message:
+            'Số dư không đủ. Cần ${_formatNumber(amount)} coins, hiện có ${_formatNumber(wallet.balance)} coins.',
         transaction: null,
       );
     }
@@ -183,7 +242,12 @@ class WalletService extends ChangeNotifier {
     );
 
     await db.insertTransaction(tx);
-    await db.updateWalletBalance(userId, newBalance, wallet.totalEarned, newTotalSpent);
+    await db.updateWalletBalance(
+      userId,
+      newBalance,
+      wallet.totalEarned,
+      newTotalSpent,
+    );
 
     _currentWallet = wallet.copyWith(
       balance: newBalance,
@@ -195,7 +259,8 @@ class WalletService extends ChangeNotifier {
 
     return (
       success: true,
-      message: 'Đã trừ ${_formatNumber(amount)} coins. Số dư: ${_formatNumber(newBalance)}',
+      message:
+          'Đã trừ ${_formatNumber(amount)} coins. Số dư: ${_formatNumber(newBalance)}',
       transaction: tx,
     );
   }
