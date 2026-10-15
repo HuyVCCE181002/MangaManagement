@@ -297,6 +297,7 @@ class WalletService extends ChangeNotifier {
     final tx = CoinTransaction(
       id: const Uuid().v4(),
       userId: userId,
+      walletId: wallet.id,
       type: TransactionType.bonus,
       amount: amount,
       coinsBefore: wallet.balance,

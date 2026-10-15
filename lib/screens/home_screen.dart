@@ -9,7 +9,6 @@ import '../services/services.dart';
 import '../services/genre_service.dart';
 import '../services/theme_service.dart';
 import '../services/wallet_service.dart';
-import '../services/database_helper.dart';
 import '../widgets/manga_card.dart';
 import '../widgets/bookmark_detail_dialog.dart';
 import 'detail_screen.dart';

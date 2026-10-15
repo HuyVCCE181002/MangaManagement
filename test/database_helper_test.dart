@@ -19,7 +19,6 @@ void main() {
       await DatabaseHelper.instance.resetToDefault();
     });
 
-    test('Seed data chứa 4 users gồm staff bổ sung', () async {
     test('Seed data chứa 4 users (admin/staff/staff_phat/reader)', () async {
       final users = await DatabaseHelper.instance.getAllUsers();
       expect(users.length, 4);
@@ -29,7 +28,6 @@ void main() {
       expect(usernames.contains('staff'), isTrue);
       expect(usernames.contains('phatstaff'), isTrue);
       expect(usernames.contains('reader'), isTrue);
-      expect(usernames.contains('phatstaff'), isTrue);
     });
 
     test('Seed data chứa 6 bộ manga', () async {
