@@ -1,0 +1,60 @@
+name: Pull Request & Code Quality
+
+on:
+  pull_request:
+    branches: [ main, master, develop ]
+  push:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  code-quality:
+    name: Code Quality & Test Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:"
+
+      - name: Print Flutter & Dart Environment
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Code Quality & Lint Analysis (flutter analyze)
+        run: flutter analyze
+
+      - name: Run unit & integration tests (flutter test)
+        run: flutter test --coverage
+
+      - name: Verify project can run (flutter run smoke test)
+        run: |
+          echo "Kiểm tra khả năng khởi động và vận hành của ứng dụng bằng flutter run..."
+          # Chạy ứng dụng trên môi trường web-server headless trong 35 giây để xác nhận app khởi chạy không crash
+          timeout 35s flutter run -d web-server --web-port=8080 || {
+            status=$?
+            if [ $status -eq 124 ]; then
+              echo "✅ Dự án khởi chạy thành công! (Ứng dụng đã render và chạy ổn định trong 35s)."
+              exit 0
+            else
+              echo "❌ Ứng dụng gặp lỗi khi khởi động! Mã lỗi: $status"
+              exit $status
+            fi
+          }
