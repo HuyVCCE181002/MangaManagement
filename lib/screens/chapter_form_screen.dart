@@ -4,6 +4,8 @@ import '../models/chapter.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
 import '../services/chapter_service.dart';
+import '../services/database_helper.dart';
+import '../services/notification_server_service.dart';
 
 class ChapterFormScreen extends StatefulWidget {
   final String mangaId;
@@ -33,6 +35,7 @@ class _ChapterFormScreenState extends State<ChapterFormScreen> {
   late List<String> _contents;
   bool _isLoading = false;
   String? _contentsError;
+  String _mangaTitle = 'Truyện tranh';
 
   bool get _isEditing => widget.initialChapter != null;
 
@@ -51,6 +54,12 @@ class _ChapterFormScreenState extends State<ChapterFormScreen> {
 
     _isLocked = c?.isLocked ?? false;
     _contents = c != null ? List<String>.from(c.contents) : [];
+
+    DatabaseHelper.instance.getMangaById(widget.mangaId).then((manga) {
+      if (manga != null && mounted) {
+        setState(() => _mangaTitle = manga.title);
+      }
+    });
   }
 
   @override
@@ -260,6 +269,16 @@ class _ChapterFormScreenState extends State<ChapterFormScreen> {
           updatedAt: now,
         );
         await ChapterService.instance.updateChapter(updatedChapter);
+
+        // Bắn thông báo Staff cập nhật chương thành công
+        NotificationServerService.instance.notifyStaffChapterAction(
+          staffId: AuthService.instance.currentUser.id,
+          action: 'update',
+          isSuccess: true,
+          mangaTitle: _mangaTitle,
+          chapterNumber: chapterNum,
+          mangaId: widget.mangaId,
+        );
       } else {
         final newChapter = Chapter(
           id: const Uuid().v4(),
@@ -273,6 +292,24 @@ class _ChapterFormScreenState extends State<ChapterFormScreen> {
           price: price,
         );
         await ChapterService.instance.addChapter(newChapter);
+
+        // Bắn thông báo Chapter mới ra mắt (độc giả theo dõi/yêu thích sẽ nhận)
+        NotificationServerService.instance.notifyNewChapter(
+          mangaId: widget.mangaId,
+          mangaTitle: _mangaTitle,
+          chapterNumber: chapterNum,
+          chapterTitle: _titleController.text.trim(),
+        );
+
+        // Bắn thông báo Staff thêm chương thành công
+        NotificationServerService.instance.notifyStaffChapterAction(
+          staffId: AuthService.instance.currentUser.id,
+          action: 'add',
+          isSuccess: true,
+          mangaTitle: _mangaTitle,
+          chapterNumber: chapterNum,
+          mangaId: widget.mangaId,
+        );
       }
 
       if (mounted) {
@@ -293,6 +330,17 @@ class _ChapterFormScreenState extends State<ChapterFormScreen> {
         Navigator.pop(context, true);
       }
     } catch (e) {
+      // Bắn thông báo Staff thao tác thất bại
+      NotificationServerService.instance.notifyStaffChapterAction(
+        staffId: AuthService.instance.currentUser.id,
+        action: _isEditing ? 'update' : 'add',
+        isSuccess: false,
+        mangaTitle: _mangaTitle,
+        chapterNumber: int.tryParse(_chapterNumberController.text.trim()) ?? 0,
+        errorDetails: e.toString(),
+        mangaId: widget.mangaId,
+      );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -358,15 +406,48 @@ class _ChapterFormScreenState extends State<ChapterFormScreen> {
     );
 
     if (confirmed == true && mounted) {
-      await ChapterService.instance.softDeleteChapter(widget.mangaId, widget.initialChapter!.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Đã xóa chương thành công!'),
-            backgroundColor: Color(0xFF00B894),
-          ),
+      try {
+        await ChapterService.instance.softDeleteChapter(widget.mangaId, widget.initialChapter!.id);
+
+        // Bắn thông báo Staff xóa chương thành công
+        NotificationServerService.instance.notifyStaffChapterAction(
+          staffId: user.id,
+          action: 'delete',
+          isSuccess: true,
+          mangaTitle: _mangaTitle,
+          chapterNumber: widget.initialChapter!.chapterNumber,
+          mangaId: widget.mangaId,
         );
-        Navigator.pop(context, true);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Đã xóa chương thành công!'),
+              backgroundColor: Color(0xFF00B894),
+            ),
+          );
+          Navigator.pop(context, true);
+        }
+      } catch (e) {
+        // Bắn thông báo Staff xóa chương thất bại
+        NotificationServerService.instance.notifyStaffChapterAction(
+          staffId: user.id,
+          action: 'delete',
+          isSuccess: false,
+          mangaTitle: _mangaTitle,
+          chapterNumber: widget.initialChapter!.chapterNumber,
+          errorDetails: e.toString(),
+          mangaId: widget.mangaId,
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Xóa chương thất bại: $e'),
+              backgroundColor: const Color(0xFFD63031),
+            ),
+          );
+        }
       }
     }
   }
