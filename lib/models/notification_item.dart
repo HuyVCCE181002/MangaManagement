@@ -8,6 +8,7 @@ class NotificationCategory {
   static const String chapterPurchased = 'chapter_purchased';
   static const String staffChapterAction = 'staff_chapter_action';
   static const String system = 'system';
+  static const String mangaUpdated = 'manga_updated';
 }
 
 class NotificationItem {
@@ -137,6 +138,8 @@ class NotificationItem {
     switch (category) {
       case NotificationCategory.newChapter:
         return Icons.auto_stories_rounded;
+      case NotificationCategory.mangaUpdated:
+        return Icons.update_rounded;
       case NotificationCategory.depositSuccess:
         return Icons.account_balance_wallet_rounded;
       case NotificationCategory.depositFailed:
@@ -154,6 +157,8 @@ class NotificationItem {
     switch (category) {
       case NotificationCategory.newChapter:
         return const Color(0xFF6C5CE7); // Tím hiện đại
+      case NotificationCategory.mangaUpdated:
+        return const Color(0xFF0984E3); // Xanh dương cập nhật
       case NotificationCategory.depositSuccess:
         return const Color(0xFF00B894); // Xanh lá thành công
       case NotificationCategory.depositFailed:
@@ -171,6 +176,8 @@ class NotificationItem {
     switch (category) {
       case NotificationCategory.newChapter:
         return 'Chương mới';
+      case NotificationCategory.mangaUpdated:
+        return 'Cập nhật truyện';
       case NotificationCategory.depositSuccess:
         return 'Nạp tiền thành công';
       case NotificationCategory.depositFailed:

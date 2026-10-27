@@ -6,6 +6,7 @@ import '../models/notification_item.dart';
 import '../models/user.dart';
 import 'auth_service.dart';
 import 'database_helper.dart';
+import 'notification_server_service.dart';
 import 'notification_server_web.dart' if (dart.library.io) 'notification_server_io.dart';
 
 /// Frontend Notification Service (Flutter FE)
@@ -76,13 +77,21 @@ class NotificationService extends ChangeNotifier {
     final userId = user.isGuest ? null : user.id;
 
     try {
-      _notifications = await DatabaseHelper.instance.getNotifications(
+      final rawNotifications = await DatabaseHelper.instance.getNotifications(
         userId: userId,
         limit: 100,
       );
-      _unreadCount = await DatabaseHelper.instance.getUnreadNotificationCount(
-        userId: userId,
-      );
+
+      final List<NotificationItem> filtered = [];
+      for (final raw in rawNotifications) {
+        if (await _isNotificationForUser(raw, user)) {
+          final isReadForUser = _isItemReadForUser(raw, user);
+          filtered.add(raw.copyWith(isRead: isReadForUser));
+        }
+      }
+
+      _notifications = filtered;
+      _unreadCount = _notifications.where((n) => !n.isRead).length;
       notifyListeners();
     } catch (e) {
       debugPrint('[NotificationService] Error loading notifications: $e');
@@ -195,74 +204,120 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
-  /// Xử lý một notification mới nhận được
-  Future<void> _handleIncomingNotification(NotificationItem item) async {
-    final currentUser = AuthService.instance.currentUser;
+  /// Kiểm tra xem thông báo có thuộc đối tượng nhận của user hiện tại không
+  Future<bool> _isNotificationForUser(NotificationItem item, AppUser user) async {
+    // 1. Kiểm tra nếu user đã ẩn/xóa thông báo này (dismissedBy)
+    final dismissedBy = (item.data?['dismissedBy'] as List?)?.cast<String>() ?? [];
+    if (!user.isGuest && dismissedBy.contains(user.id)) {
+      return false;
+    }
 
-    // 1. Kiểm tra đối tượng nhận:
-    // Nếu là thông báo Chapter mới: Kiểm tra truyện có nằm trong mục Yêu thích / Bookmark của user không
-    if (item.category == NotificationCategory.newChapter) {
+    // 2. Nếu là thông báo gửi đích danh cho 1 user cụ thể (item.userId != null)
+    if (item.userId != null && item.userId!.isNotEmpty) {
+      if (user.isGuest || item.userId != user.id) {
+        return false;
+      }
+      return true;
+    }
+
+    // 3. Nếu là thông báo Staff thao tác chương (staffChapterAction)
+    if (item.category == NotificationCategory.staffChapterAction) {
+      if (user.role != UserRole.staff && user.role != UserRole.admin) {
+        return false;
+      }
+      return true;
+    }
+
+    // 4. Nếu là thông báo Chapter mới (newChapter) hoặc Cập nhật truyện/chương (mangaUpdated)
+    if (item.category == NotificationCategory.newChapter ||
+        item.category == NotificationCategory.mangaUpdated) {
+      // Bỏ Guest: Khách vãng lai không nhận thông báo
+      if (user.isGuest) {
+        return false;
+      }
+
+      // Staff và Admin luôn nhận để theo dõi/kiểm duyệt nội dung
+      if (user.role == UserRole.staff || user.role == UserRole.admin) {
+        return true;
+      }
+
+      // Độc giả (Reader): CHỈ nhận nếu truyện ĐÃ ĐƯỢC YÊU THÍCH (isFavorite == true), bỏ qua bookmark
       final mangaId = item.data?['mangaId'] as String?;
       if (mangaId != null) {
-        bool isInterested = false;
-
-        // Nếu là staff/admin, luôn nhận để kiểm soát nội dung
-        if (currentUser.role == UserRole.staff || currentUser.role == UserRole.admin) {
-          isInterested = true;
-        } else if (!currentUser.isGuest) {
-          // Kiểm tra xem truyện này có được đánh dấu yêu thích hoặc bookmark không
-          try {
-            final manga = await DatabaseHelper.instance.getMangaById(mangaId);
-            if (manga != null && manga.isFavorite) {
-              isInterested = true;
-            } else {
-              final bookmarks = await DatabaseHelper.instance.getUserBookmarks(currentUser.id);
-              if (bookmarks.any((b) => b.bookmark.mangaId == mangaId)) {
-                isInterested = true;
-              }
-            }
-          } catch (_) {
-            isInterested = true; // Fallback hiển thị nếu không tra cứu được
+        try {
+          final manga = await DatabaseHelper.instance.getMangaById(mangaId);
+          if (manga != null && manga.isFavorite) {
+            return true;
           }
-        } else {
-          // Guest: nhận thông báo chương mới để thu hút đọc truyện
-          isInterested = true;
-        }
+        } catch (_) {}
+      }
+      return false; // Chưa yêu thích thì không nhận thông báo
+    }
 
-        if (!isInterested) {
-          return; // Bỏ qua nếu truyện không thuộc danh sách yêu thích/theo dõi
-        }
+    // 5. Nếu là thông báo Hệ thống (System Push) có chỉ định nhóm đối tượng
+    final targetAudience = item.data?['targetAudience'] as String?;
+    if (targetAudience != null && targetAudience.isNotEmpty && targetAudience != 'all') {
+      if (targetAudience == 'admin') {
+        return user.role == UserRole.admin;
+      } else if (targetAudience == 'staff') {
+        return user.role == UserRole.staff || user.role == UserRole.admin;
+      } else if (targetAudience == 'user') {
+        // 'user' nhắm đến người đọc (reader) và khách (guest).
+        // Cho phép Staff và Admin xem được trong danh sách để quản lý lịch sử thông báo đã phát.
+        return user.role == UserRole.reader ||
+            user.isGuest ||
+            user.role == UserRole.staff ||
+            user.role == UserRole.admin;
       }
     }
 
-    // Nếu là thông báo Staff: chỉ hiển thị cho tài khoản có quyền staff hoặc admin
-    if (item.category == NotificationCategory.staffChapterAction) {
-      if (currentUser.role != UserRole.staff && currentUser.role != UserRole.admin) {
-        return;
-      }
-    }
+    return true;
+  }
 
-    // Nếu thông báo nhắm đến 1 user cụ thể: chỉ hiển thị nếu đúng currentUser.id
+  /// Kiểm tra trạng thái đã đọc của thông báo đối với user hiện tại
+  bool _isItemReadForUser(NotificationItem item, AppUser user) {
     if (item.userId != null && item.userId!.isNotEmpty) {
-      if (currentUser.isGuest || item.userId != currentUser.id) {
-        return;
-      }
+      return item.isRead;
     }
+    if (user.isGuest) {
+      return item.isRead;
+    }
+    final readBy = (item.data?['readBy'] as List?)?.cast<String>() ?? [];
+    return readBy.contains(user.id);
+  }
 
-    // 2. Lưu vào SQLite
+  /// Xử lý một notification mới nhận được
+  Future<void> _handleIncomingNotification(
+    NotificationItem item, {
+    bool isSender = false,
+  }) async {
+    final currentUser = AuthService.instance.currentUser;
+
+    // 1. Luôn lưu vào SQLite để đảm bảo dữ liệu không bị thất lạc
     try {
       await DatabaseHelper.instance.insertNotification(item);
     } catch (e) {
       debugPrint('[NotificationService] Error caching notification: $e');
     }
 
-    // 3. Tự động thêm vào danh sách và làm mới chuông báo
-    _notifications.removeWhere((n) => n.id == item.id);
-    _notifications.insert(0, item);
-    _unreadCount++;
+    // 2. Kiểm tra đối tượng nhận
+    final isForUser = await _isNotificationForUser(item, currentUser);
+    if (!isForUser) {
+      return;
+    }
 
-    // Bắn ra stream thông báo mới để giao diện hiển thị Popup/SnackBar
-    _newNotificationStreamController.add(item);
+    // 3. Tự động thêm vào danh sách và làm mới chuông báo
+    final isReadForUser = _isItemReadForUser(item, currentUser);
+    final displayItem = item.copyWith(isRead: isReadForUser);
+
+    _notifications.removeWhere((n) => n.id == item.id);
+    _notifications.insert(0, displayItem);
+    _unreadCount = _notifications.where((n) => !n.isRead).length;
+
+    // Nếu không phải chính người gửi thì hiển thị Popup/SnackBar thông báo nổi
+    if (!isSender) {
+      _newNotificationStreamController.add(displayItem);
+    }
 
     // Kích hoạt notifyListeners để UI cập nhật tự động
     notifyListeners();
@@ -270,51 +325,151 @@ class NotificationService extends ChangeNotifier {
 
   /// Đánh dấu một thông báo là đã đọc
   Future<void> markAsRead(String id) async {
+    final user = AuthService.instance.currentUser;
     final index = _notifications.indexWhere((n) => n.id == id);
     if (index != -1 && !_notifications[index].isRead) {
-      _notifications[index] = _notifications[index].copyWith(isRead: true);
-      if (_unreadCount > 0) _unreadCount--;
+      final item = _notifications[index];
+      final updatedData = Map<String, dynamic>.from(item.data ?? {});
+      if (!user.isGuest) {
+        final readBy = List<String>.from((updatedData['readBy'] as List?)?.cast<String>() ?? []);
+        if (!readBy.contains(user.id)) {
+          readBy.add(user.id);
+          updatedData['readBy'] = readBy;
+        }
+      }
+
+      final updatedItem = item.copyWith(
+        isRead: true,
+        data: updatedData,
+      );
+
+      _notifications[index] = updatedItem;
+      _unreadCount = _notifications.where((n) => !n.isRead).length;
       notifyListeners();
 
-      await DatabaseHelper.instance.markNotificationAsRead(id);
+      if (item.userId != null || user.isGuest) {
+        await DatabaseHelper.instance.markNotificationAsRead(id);
+      } else {
+        await DatabaseHelper.instance.insertNotification(updatedItem);
+      }
     }
   }
 
   /// Đánh dấu tất cả là đã đọc
   Future<void> markAllAsRead() async {
     final user = AuthService.instance.currentUser;
-    _notifications = _notifications.map((n) => n.copyWith(isRead: true)).toList();
+
+    for (int i = 0; i < _notifications.length; i++) {
+      final item = _notifications[i];
+      if (!item.isRead) {
+        final updatedData = Map<String, dynamic>.from(item.data ?? {});
+        if (!user.isGuest) {
+          final readBy = List<String>.from((updatedData['readBy'] as List?)?.cast<String>() ?? []);
+          if (!readBy.contains(user.id)) {
+            readBy.add(user.id);
+            updatedData['readBy'] = readBy;
+          }
+        }
+        final updatedItem = item.copyWith(isRead: true, data: updatedData);
+        _notifications[i] = updatedItem;
+        if (item.userId != null || user.isGuest) {
+          await DatabaseHelper.instance.markNotificationAsRead(item.id);
+        } else {
+          await DatabaseHelper.instance.insertNotification(updatedItem);
+        }
+      }
+    }
+
     _unreadCount = 0;
     notifyListeners();
 
-    await DatabaseHelper.instance.markAllNotificationsAsRead(
-      userId: user.isGuest ? null : user.id,
-    );
+    if (user.isGuest) {
+      await DatabaseHelper.instance.markAllNotificationsAsRead();
+    }
   }
 
   /// Xóa một thông báo
   Future<void> deleteNotification(String id) async {
+    final user = AuthService.instance.currentUser;
     final index = _notifications.indexWhere((n) => n.id == id);
     if (index != -1) {
-      final wasUnread = !_notifications[index].isRead;
+      final item = _notifications[index];
       _notifications.removeAt(index);
-      if (wasUnread && _unreadCount > 0) _unreadCount--;
+      _unreadCount = _notifications.where((n) => !n.isRead).length;
       notifyListeners();
 
-      await DatabaseHelper.instance.deleteNotification(id);
+      if (item.userId != null || user.isGuest) {
+        await DatabaseHelper.instance.deleteNotification(id);
+      } else {
+        final updatedData = Map<String, dynamic>.from(item.data ?? {});
+        final dismissedBy = List<String>.from((updatedData['dismissedBy'] as List?)?.cast<String>() ?? []);
+        if (!dismissedBy.contains(user.id)) {
+          dismissedBy.add(user.id);
+          updatedData['dismissedBy'] = dismissedBy;
+        }
+        await DatabaseHelper.instance.insertNotification(item.copyWith(data: updatedData));
+      }
     }
   }
 
   /// Xóa tất cả thông báo
   Future<void> clearAll() async {
     final user = AuthService.instance.currentUser;
+    final itemsToClear = List<NotificationItem>.from(_notifications);
     _notifications.clear();
     _unreadCount = 0;
     notifyListeners();
 
-    await DatabaseHelper.instance.clearAllNotifications(
-      userId: user.isGuest ? null : user.id,
+    for (final item in itemsToClear) {
+      if (item.userId != null || user.isGuest) {
+        await DatabaseHelper.instance.deleteNotification(item.id);
+      } else {
+        final updatedData = Map<String, dynamic>.from(item.data ?? {});
+        final dismissedBy = List<String>.from((updatedData['dismissedBy'] as List?)?.cast<String>() ?? []);
+        if (!dismissedBy.contains(user.id)) {
+          dismissedBy.add(user.id);
+          updatedData['dismissedBy'] = dismissedBy;
+        }
+        await DatabaseHelper.instance.insertNotification(item.copyWith(data: updatedData));
+      }
+    }
+  }
+
+  /// Gửi push notification hệ thống (Admin & Staff)
+  Future<void> pushSystemNotification({
+    required String title,
+    required String message,
+    required String targetAudience, // 'all', 'user', 'staff', 'admin'
+  }) async {
+    final sender = AuthService.instance.currentUser;
+    var item = NotificationServerService.instance.notifySystemPush(
+      title: title,
+      message: message,
+      targetAudience: targetAudience,
+      senderRole: sender.role.name,
+      senderName: sender.displayName.isNotEmpty ? sender.displayName : sender.username,
     );
+
+    // Đánh dấu người gửi đã đọc thông báo này
+    if (!sender.isGuest) {
+      final updatedData = Map<String, dynamic>.from(item.data ?? {});
+      final readBy = List<String>.from((updatedData['readBy'] as List?)?.cast<String>() ?? []);
+      if (!readBy.contains(sender.id)) {
+        readBy.add(sender.id);
+        updatedData['readBy'] = readBy;
+      }
+      item = item.copyWith(data: updatedData, isRead: true);
+    }
+
+    // 1. Luôn lưu thông báo vào SQLite ngay lập tức
+    try {
+      await DatabaseHelper.instance.insertNotification(item);
+    } catch (e) {
+      debugPrint('[NotificationService] Error caching pushed notification: $e');
+    }
+
+    // 2. Kích hoạt xử lý hiển thị cho chính client hiện tại
+    await _handleIncomingNotification(item, isSender: true);
   }
 
   @override

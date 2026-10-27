@@ -1,5 +1,6 @@
 import 'package:uuid/uuid.dart';
 import '../models/notification_item.dart';
+import 'database_helper.dart';
 import 'notification_server_io.dart'
     if (dart.library.html) 'notification_server_web.dart';
 
@@ -26,7 +27,7 @@ class NotificationServerService {
   }
 
   /// 1. Bắn thông báo Chapter mới ra mắt
-  /// Độc giả nào có truyện trong danh sách Yêu thích/Theo dõi sẽ hiển thị chuông báo.
+  /// Độc giả nào có truyện trong danh sách Yêu thích sẽ hiển thị chuông báo.
   void notifyNewChapter({
     required String mangaId,
     required String mangaTitle,
@@ -35,7 +36,7 @@ class NotificationServerService {
   }) {
     final notif = NotificationItem(
       id: const Uuid().v4(),
-      userId: null, // Broadcast, client FE lọc theo manga yêu thích / bookmark
+      userId: null,
       category: NotificationCategory.newChapter,
       title: 'Chương mới: $mangaTitle',
       message:
@@ -48,6 +49,65 @@ class NotificationServerService {
       },
       createdAt: DateTime.now(),
     );
+
+    // Lưu vào SQLite
+    DatabaseHelper.instance.insertNotification(notif).catchError((_) => 0);
+
+    _platform.broadcast(notif);
+  }
+
+  /// 1b. Bắn thông báo Cập nhật nội dung chương truyện
+  void notifyChapterUpdated({
+    required String mangaId,
+    required String mangaTitle,
+    required int chapterNumber,
+    String? chapterTitle,
+  }) {
+    final notif = NotificationItem(
+      id: const Uuid().v4(),
+      userId: null,
+      category: NotificationCategory.mangaUpdated,
+      title: 'Cập nhật chương: $mangaTitle',
+      message:
+          'Chương $chapterNumber ${chapterTitle != null && chapterTitle.isNotEmpty ? "- $chapterTitle" : ""} vừa được cập nhật nội dung mới!',
+      data: {
+        'mangaId': mangaId,
+        'mangaTitle': mangaTitle,
+        'chapterNumber': chapterNumber,
+        'chapterTitle': chapterTitle,
+        'type': 'chapter',
+      },
+      createdAt: DateTime.now(),
+    );
+
+    DatabaseHelper.instance.insertNotification(notif).catchError((_) => 0);
+
+    _platform.broadcast(notif);
+  }
+
+  /// 1c. Bắn thông báo Cập nhật thông tin truyện
+  void notifyMangaUpdated({
+    required String mangaId,
+    required String mangaTitle,
+    String? details,
+  }) {
+    final notif = NotificationItem(
+      id: const Uuid().v4(),
+      userId: null,
+      category: NotificationCategory.mangaUpdated,
+      title: 'Cập nhật truyện: $mangaTitle',
+      message: details != null && details.isNotEmpty
+          ? 'Truyện "$mangaTitle" $details'
+          : 'Truyện "$mangaTitle" vừa được cập nhật thông tin mới!',
+      data: {
+        'mangaId': mangaId,
+        'mangaTitle': mangaTitle,
+        'type': 'manga',
+      },
+      createdAt: DateTime.now(),
+    );
+
+    DatabaseHelper.instance.insertNotification(notif).catchError((_) => 0);
 
     _platform.broadcast(notif);
   }
@@ -178,8 +238,44 @@ class NotificationServerService {
       createdAt: DateTime.now(),
     );
 
+    // Lưu vào SQLite
+    DatabaseHelper.instance.insertNotification(notif).catchError((_) => 0);
+
     // Phát cho staff đã thực hiện và toàn bộ staff online
     _platform.broadcast(notif, targetRole: 'staff');
+  }
+
+  /// 7. Bắn thông báo hệ thống (UC-50: Push System Notification)
+  /// Cho phép Admin hoặc Staff gửi thông báo tới nhóm đối tượng: 'all', 'user', 'staff', 'admin'.
+  /// 'user' bao gồm cả độc giả đăng nhập và khách (guest).
+  NotificationItem notifySystemPush({
+    required String title,
+    required String message,
+    required String targetAudience, // 'all', 'user', 'staff', 'admin'
+    String? senderRole,
+    String? senderName,
+  }) {
+    final notif = NotificationItem(
+      id: const Uuid().v4(),
+      userId: null,
+      category: NotificationCategory.system,
+      title: title,
+      message: message,
+      data: {
+        'targetAudience': targetAudience,
+        'senderRole': senderRole,
+        'senderName': senderName,
+        'isSystemPush': true,
+      },
+      createdAt: DateTime.now(),
+    );
+
+    _platform.broadcast(
+      notif,
+      targetRole: targetAudience == 'all' ? null : targetAudience,
+    );
+
+    return notif;
   }
 
   /// Bắn thông báo tùy biến
