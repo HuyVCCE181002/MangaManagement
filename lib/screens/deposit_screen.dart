@@ -11,6 +11,7 @@ import '../services/auth_service.dart';
 import '../services/wallet_service.dart';
 import '../services/coin_package_service.dart';
 import '../services/payment_verification_service.dart';
+import '../services/notification_server_service.dart';
 import 'transaction_history_screen.dart';
 
 /// Phương thức thanh toán
@@ -393,10 +394,27 @@ class _DepositScreenState extends State<DepositScreen> {
       if (tx.status == TransactionStatus.completed) {
         _expiryTimer?.cancel();
         _verificationTimer?.cancel();
+
+        // Bắn thông báo Nạp tiền thành công qua WebSocket
+        NotificationServerService.instance.notifyDepositSuccess(
+          userId: _auth.currentUser.id,
+          coins: order.package.totalCoins,
+          amountVnd: order.amount,
+          orderCode: order.transferCode,
+        );
+
         await _openSuccessScreen(tx);
       } else if (refreshed.status != 'pending') {
         _expiryTimer?.cancel();
         _verificationTimer?.cancel();
+
+        // Bắn thông báo Nạp tiền thất bại qua WebSocket
+        NotificationServerService.instance.notifyDepositFailed(
+          userId: _auth.currentUser.id,
+          reason: 'Đơn nạp đã hết hạn hoặc bị hủy.',
+          orderCode: order.transferCode,
+        );
+
         if (!silent) {
           _showSnack(
             'Giao dịch đã hết hạn. Không chuyển thêm tiền bằng QR cũ.',

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/manga.dart';
 import '../models/user.dart';
@@ -21,6 +22,9 @@ import 'genre_management_screen.dart';
 import 'profile_screen.dart';
 import '../services/daily_check_in_service.dart';
 import '../widgets/daily_check_in_dialog.dart';
+import '../services/notification_service.dart';
+import '../services/notification_server_service.dart';
+import 'notification_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final ThemeService _theme = ThemeService.instance;
   final WalletService _wallet = WalletService.instance;
   final DailyCheckInService _dailyCheckIn = DailyCheckInService.instance;
+  final NotificationService _notification = NotificationService.instance;
+  StreamSubscription? _newNotificationSub;
 
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
@@ -60,6 +66,63 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _theme.addListener(_onStateChanged);
     _wallet.addListener(_onStateChanged);
     _dailyCheckIn.addListener(_onStateChanged);
+    _notification.addListener(_onStateChanged);
+
+    // Bắt đầu chạy Dart WebSocket server trên service BE
+    NotificationServerService.instance.startServer();
+
+    // Khởi tạo client WebSocket lắng nghe thông báo
+    _notification.init();
+
+    // Lắng nghe stream để hiện SnackBar tức thời khi có thông báo mới
+    _newNotificationSub = _notification.onNewNotification.listen((notif) {
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(notif.icon, color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      notif.title,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    Text(
+                      notif.message,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: notif.color,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+          action: SnackBarAction(
+            label: 'Xem',
+            textColor: Colors.white,
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificationScreen()),
+              );
+            },
+          ),
+        ),
+      );
+    });
+
     _cachedUserId = _auth.currentUser.id;
     _loadMangas();
   }
@@ -112,6 +175,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    _newNotificationSub?.cancel();
+    _notification.removeListener(_onStateChanged);
     _auth.removeListener(_onStateChanged);
     _theme.removeListener(_onStateChanged);
     _wallet.removeListener(_onStateChanged);
@@ -518,6 +583,53 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               color: isDark ? Colors.amber : const Color(0xFF6C5CE7),
             ),
             onPressed: () => _theme.toggleTheme(),
+          ),
+
+          // Nút Chuông Thông Báo (Real-time WebSocket)
+          IconButton(
+            tooltip: 'Thông báo',
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.notifications_outlined, size: 23),
+                if (_notification.unreadCount > 0)
+                  Positioned(
+                    top: -4,
+                    right: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isDark ? const Color(0xFF1E222D) : Colors.white,
+                          width: 1.5,
+                        ),
+                      ),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                      child: Center(
+                        child: Text(
+                          _notification.unreadCount > 99
+                              ? '99+'
+                              : '${_notification.unreadCount}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificationScreen()),
+              );
+            },
           ),
 
           // Nút Điểm Danh Hàng Ngày Nhận Coins

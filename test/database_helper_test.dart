@@ -3,6 +3,7 @@ import 'package:manga_management_app/models/manga.dart';
 import 'package:manga_management_app/models/user.dart';
 import 'package:manga_management_app/models/payment_order.dart';
 import 'package:manga_management_app/models/coin_transaction.dart';
+import 'package:manga_management_app/models/notification_item.dart';
 import 'package:manga_management_app/services/database_helper.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -177,6 +178,71 @@ void main() {
       final stale = await helper.cacheServerPayment('reader_1', receipt('pending'));
       expect(stale.status, TransactionStatus.completed);
       expect((await helper.getWalletByUserId('reader_1'))!.balance, pkg.totalCoins);
+    });
+
+    test('Notification CRUD and unread count operations', () async {
+      final helper = DatabaseHelper.instance;
+
+      final notif1 = NotificationItem(
+        id: 'notif_test_1',
+        userId: 'reader_1',
+        category: NotificationCategory.newChapter,
+        title: 'Chương mới!',
+        message: 'Truyện bạn theo dõi có chương 10',
+        data: {'mangaId': 'manga_1', 'chapterNumber': 10},
+        createdAt: DateTime.now(),
+      );
+
+      final notif2 = NotificationItem(
+        id: 'notif_test_2',
+        userId: 'reader_1',
+        category: NotificationCategory.depositSuccess,
+        title: 'Nạp tiền thành công',
+        message: 'Bạn đã nạp thành công 100 coins',
+        createdAt: DateTime.now(),
+      );
+
+      final notifBroadcast = NotificationItem(
+        id: 'notif_broadcast',
+        userId: null, // Broadcast
+        category: NotificationCategory.system,
+        title: 'Bảo trì hệ thống',
+        message: 'Hệ thống bảo trì lúc 0h',
+        createdAt: DateTime.now(),
+      );
+
+      // Thêm notifications
+      await helper.insertNotification(notif1);
+      await helper.insertNotification(notif2);
+      await helper.insertNotification(notifBroadcast);
+
+      // Lấy danh sách notifications cho reader_1 (gồm của reader_1 + broadcast)
+      final readerNotifs = await helper.getNotifications(userId: 'reader_1');
+      expect(readerNotifs.length, 3);
+
+      // Đếm số lượng chưa đọc ban đầu
+      final initialUnread = await helper.getUnreadNotificationCount(userId: 'reader_1');
+      expect(initialUnread, 3);
+
+      // Đánh dấu 1 thông báo đã đọc
+      await helper.markNotificationAsRead('notif_test_1');
+      final unreadAfterOne = await helper.getUnreadNotificationCount(userId: 'reader_1');
+      expect(unreadAfterOne, 2);
+
+      // Đánh dấu tất cả đã đọc
+      await helper.markAllNotificationsAsRead(userId: 'reader_1');
+      final unreadAfterAll = await helper.getUnreadNotificationCount(userId: 'reader_1');
+      expect(unreadAfterAll, 0);
+
+      // Xóa 1 thông báo
+      await helper.deleteNotification('notif_test_2');
+      final notifsAfterDelete = await helper.getNotifications(userId: 'reader_1');
+      expect(notifsAfterDelete.length, 2);
+
+      // Xóa tất cả thông báo của reader_1
+      await helper.clearAllNotifications(userId: 'reader_1');
+      final notifsAfterClear = await helper.getNotifications(userId: 'reader_1');
+      expect(notifsAfterClear.length, 0);
     });
   });
 }

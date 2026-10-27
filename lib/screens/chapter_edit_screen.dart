@@ -3,6 +3,7 @@ import '../models/chapter.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
 import '../services/chapter_service.dart';
+import '../services/notification_server_service.dart';
 
 class ChapterEditScreen extends StatefulWidget {
   final Chapter chapter;
@@ -157,6 +158,16 @@ class _ChapterEditScreenState extends State<ChapterEditScreen> {
       // Cập nhật vào SQLite và đồng bộ Cache
       await ChapterService.instance.updateChapter(updatedChapter);
 
+      // Bắn thông báo Staff cập nhật thành công
+      NotificationServerService.instance.notifyStaffChapterAction(
+        staffId: AuthService.instance.currentUser.id,
+        action: 'update',
+        isSuccess: true,
+        mangaTitle: updatedChapter.title,
+        chapterNumber: updatedChapter.chapterNumber,
+        mangaId: widget.chapter.mangaId,
+      );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -239,15 +250,48 @@ class _ChapterEditScreenState extends State<ChapterEditScreen> {
     );
 
     if (confirmed == true && mounted) {
-      await ChapterService.instance.softDeleteChapter(widget.chapter.mangaId, widget.chapter.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Đã xóa mềm chương thành công!'),
-            backgroundColor: Color(0xFF00B894),
-          ),
+      try {
+        await ChapterService.instance.softDeleteChapter(widget.chapter.mangaId, widget.chapter.id);
+
+        // Bắn thông báo Staff xóa chương thành công
+        NotificationServerService.instance.notifyStaffChapterAction(
+          staffId: user.id,
+          action: 'delete',
+          isSuccess: true,
+          mangaTitle: widget.chapter.title,
+          chapterNumber: widget.chapter.chapterNumber,
+          mangaId: widget.chapter.mangaId,
         );
-        Navigator.pop(context, true);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Đã xóa mềm chương thành công!'),
+              backgroundColor: Color(0xFF00B894),
+            ),
+          );
+          Navigator.pop(context, true);
+        }
+      } catch (e) {
+        // Bắn thông báo Staff xóa chương thất bại
+        NotificationServerService.instance.notifyStaffChapterAction(
+          staffId: user.id,
+          action: 'delete',
+          isSuccess: false,
+          mangaTitle: widget.chapter.title,
+          chapterNumber: widget.chapter.chapterNumber,
+          errorDetails: e.toString(),
+          mangaId: widget.chapter.mangaId,
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Xóa chương thất bại: $e'),
+              backgroundColor: const Color(0xFFD63031),
+            ),
+          );
+        }
       }
     }
   }

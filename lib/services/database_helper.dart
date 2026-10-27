@@ -10,9 +10,16 @@ import '../models/coin_transaction.dart';
 import '../models/coin_package.dart';
 import '../models/daily_check_in.dart';
 import '../models/payment_order.dart';
+import '../models/notification_item.dart';
 
 class DatabaseHelper {
-  static const String _dbName = 'manga_vault.db';
+  static String _dbName = 'manga_vault.db';
+
+  @visibleForTesting
+  static void setDbNameForTesting(String name) {
+    _dbName = name;
+    _database = null;
+  }
   // Lịch sử version:
   //   v1: users + mangas (bản đầu)
   //   v2: thêm chapters + user_purchased_chapters + bookmarks
@@ -32,6 +39,7 @@ class DatabaseHelper {
   static const String tableTransactions = tableCoinTransactions;
   static const String tableUserCheckInStats = 'user_check_in_stats';
   static const String tableDailyCheckInHistory = 'daily_check_in_history';
+  static const String tableNotifications = 'notifications';
 
 
   static final DatabaseHelper instance = DatabaseHelper._internal();
@@ -138,6 +146,20 @@ class DatabaseHelper {
         reward_coins INTEGER NOT NULL,
         created_at TEXT NOT NULL,
         FOREIGN KEY (user_id) REFERENCES $tableUsers (id) ON DELETE CASCADE
+      )
+    ''');
+
+    // Đảm bảo bảng notifications luôn tồn tại
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableNotifications (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        category TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        data TEXT,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
       )
     ''');
 
@@ -294,6 +316,20 @@ class DatabaseHelper {
         FOREIGN KEY (user_id) REFERENCES $tableUsers (id) ON DELETE CASCADE,
         FOREIGN KEY (manga_id) REFERENCES $tableMangas (id) ON DELETE CASCADE,
         FOREIGN KEY (chapter_id) REFERENCES $tableChapters (id) ON DELETE CASCADE
+      )
+    ''');
+
+    // Bảng notifications
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableNotifications (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        category TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        data TEXT,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
       )
     ''');
 
@@ -914,6 +950,9 @@ class DatabaseHelper {
     await db.delete(tableWallets);
     await db.delete(tableCoinTransactions);
     await db.delete(tableCoinPackages);
+    try {
+      await db.delete(tableNotifications);
+    } catch (_) {}
     await _seedInitialData(db);
     await _seedCoinPackages(db);
   }
@@ -1378,5 +1417,125 @@ class DatabaseHelper {
       limit: limit,
     );
     return maps.map((map) => DailyCheckInHistoryItem.fromMap(map)).toList();
+  }
+
+  // ===================== NOTIFICATIONS =====================
+
+  /// Thêm hoặc ghi đè thông báo
+  Future<int> insertNotification(NotificationItem item) async {
+    final db = await database;
+    return await db.insert(
+      tableNotifications,
+      item.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Lấy danh sách thông báo theo userId (hoặc broadcast user_id IS NULL)
+  Future<List<NotificationItem>> getNotifications({
+    String? userId,
+    String? category,
+    int limit = 100,
+  }) async {
+    final db = await database;
+    String whereClause = '';
+    List<dynamic> whereArgs = [];
+
+    if (userId != null && userId.isNotEmpty) {
+      whereClause = '(user_id = ? OR user_id IS NULL)';
+      whereArgs.add(userId);
+    }
+
+    if (category != null && category.isNotEmpty) {
+      if (whereClause.isNotEmpty) {
+        whereClause += ' AND category = ?';
+      } else {
+        whereClause = 'category = ?';
+      }
+      whereArgs.add(category);
+    }
+
+    final maps = await db.query(
+      tableNotifications,
+      where: whereClause.isNotEmpty ? whereClause : null,
+      whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+      orderBy: 'created_at DESC',
+      limit: limit,
+    );
+
+    return maps.map((map) => NotificationItem.fromMap(map)).toList();
+  }
+
+  /// Đếm số thông báo chưa đọc
+  Future<int> getUnreadNotificationCount({String? userId}) async {
+    final db = await database;
+    String whereClause = 'is_read = 0';
+    List<dynamic> whereArgs = [];
+
+    if (userId != null && userId.isNotEmpty) {
+      whereClause += ' AND (user_id = ? OR user_id IS NULL)';
+      whereArgs.add(userId);
+    }
+
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $tableNotifications WHERE $whereClause',
+      whereArgs,
+    );
+
+    if (result.isEmpty) return 0;
+    return (result.first['count'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Đánh dấu một thông báo là đã đọc
+  Future<int> markNotificationAsRead(String id) async {
+    final db = await database;
+    return await db.update(
+      tableNotifications,
+      {'is_read': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Đánh dấu tất cả thông báo là đã đọc
+  Future<int> markAllNotificationsAsRead({String? userId}) async {
+    final db = await database;
+    if (userId != null && userId.isNotEmpty) {
+      return await db.update(
+        tableNotifications,
+        {'is_read': 1},
+        where: 'user_id = ? OR user_id IS NULL',
+        whereArgs: [userId],
+      );
+    } else {
+      return await db.update(
+        tableNotifications,
+        {'is_read': 1},
+      );
+    }
+  }
+
+  /// Xóa một thông báo theo ID
+  Future<int> deleteNotification(String id) async {
+    final db = await database;
+    return await db.delete(
+      tableNotifications,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Xóa tất cả thông báo
+  Future<int> clearAllNotifications({String? userId}) async {
+    final db = await database;
+    if (userId != null && userId.isNotEmpty) {
+      return await db.delete(
+        tableNotifications,
+        where: 'user_id = ? OR user_id IS NULL',
+        whereArgs: [userId],
+      );
+    } else {
+      return await db.delete(tableNotifications);
+    }
   }
 }
