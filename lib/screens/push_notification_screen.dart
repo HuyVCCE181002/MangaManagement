@@ -178,127 +178,131 @@ class _PushNotificationScreenState extends State<PushNotificationScreen> {
               const SizedBox(height: 12),
 
               // Danh sách nút chọn đối tượng (Radio Cards)
-              ..._targetOptions.map((option) {
-                final isSelected = _selectedTarget == option['id'];
-                final optColor = option['color'] as Color;
+              RadioGroup<String>(
+                groupValue: _selectedTarget,
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _selectedTarget = val);
+                  }
+                },
+                child: Column(
+                  children: _targetOptions.map((option) {
+                    final isSelected = _selectedTarget == option['id'];
+                    final optColor = option['color'] as Color;
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8.0),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () {
-                        setState(() {
-                          _selectedTarget = option['id'] as String;
-                        });
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? optColor.withValues(alpha: 0.1)
-                              : (isDark
-                                  ? const Color(0xFF1E232A)
-                                  : Colors.grey.shade50),
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: isSelected
-                                ? optColor
-                                : (isDark
-                                    ? Colors.white10
-                                    : Colors.grey.shade300),
-                            width: isSelected ? 2 : 1,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: optColor.withValues(alpha: 0.15),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                option['icon'] as IconData,
-                                color: optColor,
-                                size: 20,
+                          onTap: () {
+                            setState(() {
+                              _selectedTarget = option['id'] as String;
+                            });
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? optColor.withValues(alpha: 0.1)
+                                  : (isDark
+                                      ? const Color(0xFF1E232A)
+                                      : Colors.grey.shade50),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: isSelected
+                                    ? optColor
+                                    : (isDark
+                                        ? Colors.white10
+                                        : Colors.grey.shade300),
+                                width: isSelected ? 2 : 1,
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: optColor.withValues(alpha: 0.15),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    option['icon'] as IconData,
+                                    color: optColor,
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        option['label'] as String,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: isSelected
-                                              ? optColor
-                                              : theme.colorScheme.onSurface,
-                                        ),
-                                      ),
-                                      if (option['id'] == 'all') ...[
-                                        const SizedBox(width: 6),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 1.5,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: optColor.withValues(alpha: 0.2),
-                                            borderRadius:
-                                                BorderRadius.circular(6),
-                                          ),
-                                          child: Text(
-                                            'Mặc định',
+                                      Row(
+                                        children: [
+                                          Text(
+                                            option['label'] as String,
                                             style: TextStyle(
-                                              fontSize: 10,
                                               fontWeight: FontWeight.bold,
-                                              color: optColor,
+                                              fontSize: 14,
+                                              color: isSelected
+                                                  ? optColor
+                                                  : theme.colorScheme.onSurface,
                                             ),
                                           ),
+                                          if (option['id'] == 'all') ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                                vertical: 1.5,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: optColor.withValues(alpha: 0.2),
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                'Mặc định',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: optColor,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        option['subtitle'] as String,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color:
+                                              theme.colorScheme.onSurfaceVariant,
                                         ),
-                                      ],
+                                      ),
                                     ],
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    option['subtitle'] as String,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color:
-                                          theme.colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
+                                Radio<String>(
+                                  value: option['id'] as String,
+                                  activeColor: optColor,
+                                ),
+                              ],
                             ),
-                            Radio<String>(
-                              value: option['id'] as String,
-                              groupValue: _selectedTarget,
-                              activeColor: optColor,
-                              onChanged: (val) {
-                                if (val != null) {
-                                  setState(() => _selectedTarget = val);
-                                }
-                              },
-                            ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                );
-              }),
+                    );
+                  }).toList(),
+                ),
+              ),
 
               const SizedBox(height: 24),
 
