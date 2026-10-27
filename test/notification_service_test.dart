@@ -130,5 +130,95 @@ void main() {
       );
       expect(staffNotifs.length, greaterThanOrEqualTo(2));
     });
+
+    test('Staff pushes notification targeted to user, then user logs in and sees it as unread', () async {
+      // 1. Staff logs in
+      final staffLogin = await AuthService.instance.login('staff', 'staff123');
+      expect(staffLogin.success, isTrue);
+
+      final notifService = NotificationService.instance;
+
+      // 2. Staff sends system notification targeted to 'user'
+      await notifService.pushSystemNotification(
+        title: 'Bảo trì hệ thống định kỳ',
+        message: 'Hệ thống sẽ bảo trì từ 0h đến 2h sáng mai.',
+        targetAudience: 'user',
+      );
+
+      // 3. Staff logs out
+      await AuthService.instance.logout();
+      expect(AuthService.instance.currentUser.isGuest, isTrue);
+
+      // 4. Reader logs in
+      final readerLogin = await AuthService.instance.login('reader', 'reader123');
+      expect(readerLogin.success, isTrue);
+
+      // 5. Load notifications for reader
+      await notifService.loadNotifications();
+
+      // Reader must see the notification and have unread count >= 1
+      expect(notifService.notifications.any((n) => n.title == 'Bảo trì hệ thống định kỳ'), isTrue);
+      expect(notifService.unreadCount, greaterThanOrEqualTo(1));
+
+      final userNotif = notifService.notifications.firstWhere((n) => n.title == 'Bảo trì hệ thống định kỳ');
+      expect(userNotif.isRead, isFalse);
+
+      // 6. Reader marks it as read
+      await notifService.markAsRead(userNotif.id);
+      expect(notifService.notifications.firstWhere((n) => n.id == userNotif.id).isRead, isTrue);
+      expect(notifService.unreadCount, 0);
+    });
+
+    test('Only readers who favorited the manga receive new chapter or manga update notifications', () async {
+      final notifService = NotificationService.instance;
+      final server = NotificationServerService.instance;
+
+      // Manga '1' (One Piece) có isFavorite = true trong seed
+      // Manga '3' (Frieren) có isFavorite = false trong seed
+
+      // 1. Phát thông báo chương mới cho Manga '1' (được yêu thích)
+      server.notifyNewChapter(
+        mangaId: '1',
+        mangaTitle: 'One Piece',
+        chapterNumber: 1116,
+      );
+
+      // 2. Phát thông báo cập nhật truyện cho Manga '1' (được yêu thích)
+      server.notifyMangaUpdated(
+        mangaId: '1',
+        mangaTitle: 'One Piece',
+      );
+
+      // 3. Phát thông báo chương mới cho Manga '3' (chưa yêu thích)
+      server.notifyNewChapter(
+        mangaId: '3',
+        mangaTitle: 'Frieren',
+        chapterNumber: 201,
+      );
+
+      // 4. Phát thông báo cập nhật truyện cho Manga '3' (chưa yêu thích)
+      server.notifyMangaUpdated(
+        mangaId: '3',
+        mangaTitle: 'Frieren',
+      );
+
+      // 5. Kiểm tra với Guest (khách vãng lai): KHÔNG nhận được thông báo nào của truyện
+      await AuthService.instance.logout();
+      await notifService.loadNotifications();
+      expect(notifService.notifications.any((n) => n.data?['mangaId'] == '1'), isFalse);
+      expect(notifService.notifications.any((n) => n.data?['mangaId'] == '3'), isFalse);
+
+      // 6. Đăng nhập tài khoản Reader
+      final login = await AuthService.instance.login('reader', 'reader123');
+      expect(login.success, isTrue);
+      await notifService.loadNotifications();
+
+      // Reader PHẢI nhận được thông báo của Manga '1' (One Piece - Đã yêu thích)
+      expect(notifService.notifications.any((n) => n.data?['mangaId'] == '1' && n.category == NotificationCategory.newChapter), isTrue);
+      expect(notifService.notifications.any((n) => n.data?['mangaId'] == '1' && n.category == NotificationCategory.mangaUpdated), isTrue);
+
+      // Reader KHÔNG ĐƯỢC nhận thông báo của Manga '3' (Frieren - Chưa yêu thích)
+      expect(notifService.notifications.any((n) => n.data?['mangaId'] == '3'), isFalse);
+    });
   });
 }

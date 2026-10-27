@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../models/notification_item.dart';
+import '../services/auth_service.dart';
 import '../services/database_helper.dart';
 import '../services/notification_service.dart';
 import 'detail_screen.dart';
+import 'push_notification_screen.dart';
 import 'wallet_screen.dart';
 
 class NotificationScreen extends StatefulWidget {
@@ -112,6 +114,20 @@ class _NotificationScreenState extends State<NotificationScreen> {
           ],
         ),
         actions: [
+          // Nút tạo & gửi thông báo hệ thống dành cho Admin / Staff (UC-50)
+          if (AuthService.instance.currentUser.role.canPushNotification)
+            IconButton(
+              tooltip: 'Gửi thông báo hệ thống (Admin/Staff)',
+              icon: const Icon(Icons.campaign_rounded, color: Color(0xFF6C5CE7)),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PushNotificationScreen(),
+                  ),
+                );
+              },
+            ),
           // Đánh dấu tất cả đã đọc
           IconButton(
             tooltip: 'Đánh dấu tất cả đã đọc',

@@ -6,6 +6,7 @@ import '../services/wallet_service.dart';
 import '../widgets/profile_dialogs.dart';
 import 'coin_package_management_screen.dart';
 import 'form_screen.dart';
+import 'push_notification_screen.dart';
 import 'user_management_screen.dart';
 import 'wallet_screen.dart';
 import '../services/daily_check_in_service.dart';
@@ -514,7 +515,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           const Divider(height: 1),
                         ],
-                        if (currentUser.role.canAddManga)
+                        if (currentUser.role.canAddManga) ...[
                           ListTile(
                             leading: const Icon(Icons.post_add_rounded, color: Color(0xFF0984E3)),
                             title: const Text('Thêm truyện Manga mới'),
@@ -523,6 +524,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(builder: (_) => const MangaFormScreen()),
+                              );
+                            },
+                          ),
+                          const Divider(height: 1),
+                        ],
+                        if (currentUser.role.canPushNotification)
+                          ListTile(
+                            leading: const Icon(Icons.campaign_rounded, color: Color(0xFF6C5CE7)),
+                            title: const Text('Gửi thông báo hệ thống (Push Notification)'),
+                            subtitle: const Text('Phát tin đến Tất cả, Users, Staff hoặc Admin', style: TextStyle(fontSize: 12)),
+                            trailing: const Icon(Icons.chevron_right_rounded),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const PushNotificationScreen()),
                               );
                             },
                           ),

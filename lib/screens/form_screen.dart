@@ -4,6 +4,7 @@ import '../models/manga.dart';
 import '../services/auth_service.dart';
 import '../services/services.dart';
 import '../services/genre_service.dart';
+import '../services/notification_server_service.dart';
 
 class MangaFormScreen extends StatefulWidget {
   final Manga? initialManga;
@@ -110,6 +111,11 @@ class _MangaFormScreenState extends State<MangaFormScreen> {
 
     if (_isEditing) {
       await MangaService.instance.updateManga(manga);
+      // Bắn thông báo cập nhật truyện cho những người đã yêu thích truyện
+      NotificationServerService.instance.notifyMangaUpdated(
+        mangaId: manga.id,
+        mangaTitle: manga.title,
+      );
     } else {
       await MangaService.instance.addManga(manga);
     }

@@ -270,6 +270,14 @@ class _ChapterFormScreenState extends State<ChapterFormScreen> {
         );
         await ChapterService.instance.updateChapter(updatedChapter);
 
+        // Bắn thông báo cập nhật chương cho người đã yêu thích truyện
+        NotificationServerService.instance.notifyChapterUpdated(
+          mangaId: widget.mangaId,
+          mangaTitle: _mangaTitle,
+          chapterNumber: chapterNum,
+          chapterTitle: _titleController.text.trim(),
+        );
+
         // Bắn thông báo Staff cập nhật chương thành công
         NotificationServerService.instance.notifyStaffChapterAction(
           staffId: AuthService.instance.currentUser.id,

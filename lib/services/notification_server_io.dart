@@ -109,9 +109,26 @@ class NotificationServerPlatform {
         }
       }
 
-      if (targetRole != null && session.role != null) {
-        if (session.role != targetRole && session.role != 'admin') {
-          shouldSend = false;
+      if (targetRole != null && targetRole.isNotEmpty && targetRole != 'all') {
+        final clientRole = session.role ?? 'guest';
+        if (targetRole == 'admin') {
+          if (clientRole != 'admin') {
+            shouldSend = false;
+          }
+        } else if (targetRole == 'staff') {
+          // Staff notification: gửi tới staff và admin
+          if (clientRole != 'staff' && clientRole != 'admin') {
+            shouldSend = false;
+          }
+        } else if (targetRole == 'user') {
+          // User notification: bao gồm reader và guest
+          if (clientRole != 'reader' && clientRole != 'guest') {
+            shouldSend = false;
+          }
+        } else {
+          if (clientRole != targetRole && clientRole != 'admin') {
+            shouldSend = false;
+          }
         }
       }
 
