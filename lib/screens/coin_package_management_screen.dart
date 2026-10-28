@@ -7,10 +7,12 @@ class CoinPackageManagementScreen extends StatefulWidget {
   const CoinPackageManagementScreen({super.key});
 
   @override
-  State<CoinPackageManagementScreen> createState() => _CoinPackageManagementScreenState();
+  State<CoinPackageManagementScreen> createState() =>
+      _CoinPackageManagementScreenState();
 }
 
-class _CoinPackageManagementScreenState extends State<CoinPackageManagementScreen> {
+class _CoinPackageManagementScreenState
+    extends State<CoinPackageManagementScreen> {
   final CoinPackageService _service = CoinPackageService.instance;
 
   @override
@@ -90,14 +92,17 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
           children: [
             const Icon(Icons.warning_rounded, color: Colors.redAccent),
             const SizedBox(width: 8),
-            const Text('Xác nhận xóa gói'),
+            const Text('Xác nhận gỡ gói'),
           ],
         ),
         content: Text(
-          'Bạn có chắc muốn xóa gói "${pkg.name}"? Hành động này không thể hoàn tác.',
+          'Nếu gói "${pkg.name}" đã có giao dịch, hệ thống sẽ tạm dừng thay vì xóa để giữ lịch sử.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Hủy'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () async {
@@ -126,7 +131,9 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: success ? const Color(0xFF00B894) : const Color(0xFFD63031),
+        backgroundColor: success
+            ? const Color(0xFF00B894)
+            : const Color(0xFFD63031),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -158,7 +165,10 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: const Color(0xFF6C5CE7),
         icon: const Icon(Icons.add_rounded, color: Colors.white),
-        label: const Text('Tạo gói mới', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        label: const Text(
+          'Tạo gói mới',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         onPressed: () => _showPackageForm(),
       ),
       body: Column(
@@ -175,13 +185,21 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
             ),
             child: Row(
               children: [
-                Expanded(child: _buildStatItem('Tổng gói', packages.length.toString())),
+                Expanded(
+                  child: _buildStatItem('Tổng gói', packages.length.toString()),
+                ),
                 Container(width: 1, height: 32, color: Colors.white24),
-                Expanded(child: _buildStatItem('Đang bán', totalActive.toString())),
+                Expanded(
+                  child: _buildStatItem('Đang bán', totalActive.toString()),
+                ),
                 Container(width: 1, height: 32, color: Colors.white24),
-                Expanded(child: _buildStatItem('Nổi bật', totalFeatured.toString())),
+                Expanded(
+                  child: _buildStatItem('Nổi bật', totalFeatured.toString()),
+                ),
                 Container(width: 1, height: 32, color: Colors.white24),
-                Expanded(child: _buildStatItem('Giá cao nhất', _formatVnd(maxPrice))),
+                Expanded(
+                  child: _buildStatItem('Giá cao nhất', _formatVnd(maxPrice)),
+                ),
               ],
             ),
           ),
@@ -193,18 +211,26 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.inventory_2_outlined, size: 64, color: theme.colorScheme.onSurfaceVariant),
+                        Icon(
+                          Icons.inventory_2_outlined,
+                          size: 64,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                         const SizedBox(height: 12),
                         Text(
                           'Chưa có gói coins nào',
-                          style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
                         const SizedBox(height: 16),
                         ElevatedButton.icon(
                           onPressed: () => _showPackageForm(),
                           icon: const Icon(Icons.add_rounded),
                           label: const Text('Tạo gói đầu tiên'),
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6C5CE7)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF6C5CE7),
+                          ),
                         ),
                       ],
                     ),
@@ -213,7 +239,8 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
                     itemCount: packages.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (_, i) => _buildPackageCard(packages[i], isDark),
+                    itemBuilder: (_, i) =>
+                        _buildPackageCard(packages[i], isDark),
                   ),
           ),
         ],
@@ -224,9 +251,19 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
   Widget _buildStatItem(String label, String value) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
+        ),
         const SizedBox(height: 2),
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 10),
+        ),
       ],
     );
   }
@@ -276,7 +313,11 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
-                              color: pkg.isActive ? null : Theme.of(context).colorScheme.onSurfaceVariant,
+                              color: pkg.isActive
+                                  ? null
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -285,23 +326,43 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
                         if (pkg.isFeatured) ...[
                           const SizedBox(width: 6),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFFFFB300),
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: const Text('HOT', style: TextStyle(fontSize: 9, color: Colors.black, fontWeight: FontWeight.w900)),
+                            child: const Text(
+                              'HOT',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.black,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
                           ),
                         ],
                         if (!pkg.isActive) ...[
                           const SizedBox(width: 6),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.grey,
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: const Text('TẠM DỪNG', style: TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.w900)),
+                            child: const Text(
+                              'TẠM DỪNG',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
                           ),
                         ],
                       ],
@@ -310,7 +371,10 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
                     Text(
                       '${_formatCoins(pkg.coins)} coins'
                       '${pkg.bonusCoins > 0 ? " + ${_formatCoins(pkg.bonusCoins)} bonus" : ""}',
-                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -320,12 +384,20 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
                 children: [
                   Text(
                     '${_formatVnd(pkg.price)}đ',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF6C5CE7)),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF6C5CE7),
+                    ),
                   ),
                   if (pkg.bonusCoins > 0)
                     Text(
                       '+${pkg.bonusPercentage}% bonus',
-                      style: TextStyle(fontSize: 10, color: Colors.green.shade700, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                 ],
               ),
@@ -354,7 +426,9 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
               IconButton(
                 tooltip: pkg.isFeatured ? 'Bỏ nổi bật' : 'Đánh dấu nổi bật',
                 icon: Icon(
-                  pkg.isFeatured ? Icons.star_rounded : Icons.star_outline_rounded,
+                  pkg.isFeatured
+                      ? Icons.star_rounded
+                      : Icons.star_outline_rounded,
                   color: pkg.isFeatured ? const Color(0xFFFFB300) : Colors.grey,
                 ),
                 onPressed: () => _toggleFeatured(pkg),
@@ -368,7 +442,10 @@ class _CoinPackageManagementScreenState extends State<CoinPackageManagementScree
               // Delete
               IconButton(
                 tooltip: 'Xóa',
-                icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                icon: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Colors.redAccent,
+                ),
                 onPressed: () => _confirmDelete(pkg),
               ),
             ],
@@ -423,10 +500,18 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
   void initState() {
     super.initState();
     _name = TextEditingController(text: widget.existing?.name ?? '');
-    _coins = TextEditingController(text: widget.existing?.coins.toString() ?? '');
-    _price = TextEditingController(text: widget.existing?.price.toStringAsFixed(0) ?? '');
-    _bonus = TextEditingController(text: widget.existing?.bonusCoins.toString() ?? '0');
-    _sort = TextEditingController(text: widget.existing?.sortOrder.toString() ?? '0');
+    _coins = TextEditingController(
+      text: widget.existing?.coins.toString() ?? '',
+    );
+    _price = TextEditingController(
+      text: widget.existing?.price.toStringAsFixed(0) ?? '',
+    );
+    _bonus = TextEditingController(
+      text: widget.existing?.bonusCoins.toString() ?? '0',
+    );
+    _sort = TextEditingController(
+      text: widget.existing?.sortOrder.toString() ?? '0',
+    );
     _isActive = widget.existing?.isActive ?? true;
     _isFeatured = widget.existing?.isFeatured ?? false;
   }
@@ -449,10 +534,12 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
 
   String _previewPrice() {
     final p = double.tryParse(_price.text) ?? 0;
-    return p.toStringAsFixed(0).replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-      (m) => '${m[1]},',
-    );
+    return p
+        .toStringAsFixed(0)
+        .replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (m) => '${m[1]},',
+        );
   }
 
   @override
@@ -479,14 +566,21 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
-                        widget.existing == null ? Icons.add_box_rounded : Icons.edit_rounded,
+                        widget.existing == null
+                            ? Icons.add_box_rounded
+                            : Icons.edit_rounded,
                         color: const Color(0xFF6C5CE7),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      widget.existing == null ? 'Tạo gói coins mới' : 'Chỉnh sửa gói coins',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      widget.existing == null
+                          ? 'Tạo gói coins mới'
+                          : 'Chỉnh sửa gói coins',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -499,7 +593,9 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                     prefixIcon: Icon(Icons.label_rounded),
                     border: OutlineInputBorder(),
                   ),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Vui lòng nhập tên gói' : null,
+                  validator: (v) => (v == null || v.trim().isEmpty)
+                      ? 'Vui lòng nhập tên gói'
+                      : null,
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -508,7 +604,9 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                       child: TextFormField(
                         controller: _coins,
                         keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
                         decoration: const InputDecoration(
                           labelText: 'Coins cơ bản *',
                           prefixIcon: Icon(Icons.monetization_on_rounded),
@@ -527,7 +625,9 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                       child: TextFormField(
                         controller: _bonus,
                         keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
                         decoration: const InputDecoration(
                           labelText: 'Coins thưởng',
                           prefixIcon: Icon(Icons.card_giftcard_rounded),
@@ -541,8 +641,12 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _price,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'Giá tiền (VNĐ) *',
                     prefixIcon: Icon(Icons.attach_money_rounded),
@@ -571,7 +675,10 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                   value: _isActive,
                   onChanged: (v) => setState(() => _isActive = v),
                   title: const Text('Đang bán'),
-                  subtitle: const Text('Hiển thị cho người dùng', style: TextStyle(fontSize: 11)),
+                  subtitle: const Text(
+                    'Hiển thị cho người dùng',
+                    style: TextStyle(fontSize: 11),
+                  ),
                   activeThumbColor: const Color(0xFF00B894),
                   contentPadding: EdgeInsets.zero,
                 ),
@@ -579,7 +686,10 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                   value: _isFeatured,
                   onChanged: (v) => setState(() => _isFeatured = v),
                   title: const Text('Gói nổi bật'),
-                  subtitle: const Text('Hiển thị ở mục HOT trên Ví', style: TextStyle(fontSize: 11)),
+                  subtitle: const Text(
+                    'Hiển thị ở mục HOT trên Ví',
+                    style: TextStyle(fontSize: 11),
+                  ),
                   activeThumbColor: const Color(0xFFFFB300),
                   contentPadding: EdgeInsets.zero,
                 ),
@@ -589,18 +699,27 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                   decoration: BoxDecoration(
                     color: const Color(0xFF6C5CE7).withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFF6C5CE7).withValues(alpha: 0.3)),
+                    border: Border.all(
+                      color: const Color(0xFF6C5CE7).withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
                       Column(
                         children: [
-                          const Text('Coins nhận', style: TextStyle(fontSize: 11)),
+                          const Text(
+                            'Coins nhận',
+                            style: TextStyle(fontSize: 11),
+                          ),
                           const SizedBox(height: 4),
                           Text(
                             _previewCoins(),
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF00B894)),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF00B894),
+                            ),
                           ),
                         ],
                       ),
@@ -611,7 +730,11 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                           const SizedBox(height: 4),
                           Text(
                             '${_previewPrice()}đ',
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF6C5CE7)),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF6C5CE7),
+                            ),
                           ),
                         ],
                       ),
@@ -624,7 +747,9 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () => Navigator.pop(context),
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
                         child: const Text('Hủy'),
                       ),
                     ),
@@ -633,22 +758,26 @@ class _PackageFormDialogState extends State<_PackageFormDialog> {
                       child: ElevatedButton(
                         onPressed: () {
                           if (!_formKey.currentState!.validate()) return;
-                          widget.onSubmit(_PackageFormData(
-                            name: _name.text,
-                            coins: int.parse(_coins.text),
-                            price: double.parse(_price.text),
-                            bonusCoins: int.tryParse(_bonus.text) ?? 0,
-                            isActive: _isActive,
-                            isFeatured: _isFeatured,
-                            sortOrder: int.tryParse(_sort.text) ?? 0,
-                          ));
+                          widget.onSubmit(
+                            _PackageFormData(
+                              name: _name.text,
+                              coins: int.parse(_coins.text),
+                              price: double.parse(_price.text),
+                              bonusCoins: int.tryParse(_bonus.text) ?? 0,
+                              isActive: _isActive,
+                              isFeatured: _isFeatured,
+                              sortOrder: int.tryParse(_sort.text) ?? 0,
+                            ),
+                          );
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF6C5CE7),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
-                        child: Text(widget.existing == null ? 'Tạo gói' : 'Cập nhật'),
+                        child: Text(
+                          widget.existing == null ? 'Tạo gói' : 'Cập nhật',
+                        ),
                       ),
                     ),
                   ],

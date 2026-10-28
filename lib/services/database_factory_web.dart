@@ -14,11 +14,9 @@ Future<String> resolveDatabasePath(String dbName) async {
 }
 
 void setupPlatformDatabase() {
-  // Dùng noWebWorker: true để tránh service worker issues
   try {
     databaseFactory = createDatabaseFactoryFfiWeb(noWebWorker: true);
   } catch (e) {
-    // Nếu fail, dùng mặc định (sẽ throw khi mở db)
     debugPrint('Warning: cannot init web database factory: $e');
   }
 }

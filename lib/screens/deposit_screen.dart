@@ -11,6 +11,7 @@ import '../services/auth_service.dart';
 import '../services/wallet_service.dart';
 import '../services/coin_package_service.dart';
 import '../services/payment_verification_service.dart';
+import '../services/viet_qr.dart';
 import '../services/notification_server_service.dart';
 import 'transaction_history_screen.dart';
 
@@ -66,6 +67,9 @@ class _DepositScreenState extends State<DepositScreen> {
   bool _isCheckingStatus = false;
   bool _isCreatingOrder = false;
   PaymentOrder? _serverOrder;
+  CoinTransaction? _localPending;
+  bool _usingLocalFallback = false;
+  String? _localTransferCode;
   String? _requestKey;
   String? _paymentError;
   Duration _timeRemaining = const Duration(minutes: 10);
@@ -73,8 +77,10 @@ class _DepositScreenState extends State<DepositScreen> {
   Timer? _verificationTimer;
 
   CoinTransaction? get _pendingTransaction =>
+      _localPending ??
       _wallet.transactions.where((tx) => tx.id == _serverOrder?.id).firstOrNull;
-  String? get _transferCode => _serverOrder?.transferCode;
+  String? get _transferCode =>
+      _serverOrder?.transferCode ?? _localTransferCode;
   String get _draftKey => 'manga_payment_order_${_auth.currentUser.id}';
 
   int get _currentStep {
@@ -124,7 +130,24 @@ class _DepositScreenState extends State<DepositScreen> {
     if (mounted) setState(() {});
   }
 
-  String get _dynamicQrUrl => _serverOrder!.qrUrl;
+  /// Mọi nguồn ảnh QR. Nguồn 1: VietQR BIN chuẩn; nguồn 2: SePay;
+  /// nguồn cuối: QR EMVCo vẽ offline tại máy.
+  List<String> get _dynamicQrUrls {
+    if (_serverOrder != null) return _serverOrder!.qrImageCandidates;
+    final amount = _finalPrice.round();
+    final code = _transferCode ?? '';
+    return [
+      PaymentOrder.vietQrImageUrl(amount: amount, transferCode: code),
+      PaymentOrder.sepayQrImageUrl(amount: amount, transferCode: code),
+    ];
+  }
+
+  String get _emvCoPayload => VietQr.emvCoPayload(
+    amount: _serverOrder?.amount ?? _finalPrice.round(),
+    transferCode: _serverOrder?.transferCode ?? _transferCode ?? '',
+    accountNumber:
+        _serverOrder?.accountNumber ?? PaymentOrder.defaultAccountNumber,
+  );
 
   void _startTimers() {
     _expiryTimer?.cancel();
@@ -140,7 +163,8 @@ class _DepositScreenState extends State<DepositScreen> {
         _refreshPaymentStatus(silent: true);
       }
     });
-    _verificationTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _verificationTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted) return;
       if (_serverOrder?.status == 'pending') {
         _refreshPaymentStatus(silent: true);
       }
@@ -190,7 +214,7 @@ class _DepositScreenState extends State<DepositScreen> {
             _auth.currentUser,
             restored.id,
           );
-          await _openSuccessScreen(tx);
+          await _returnToWalletAfterSuccess(tx);
         } else if (restored.status == 'pending') {
           _startTimers();
         }
@@ -300,18 +324,74 @@ class _DepositScreenState extends State<DepositScreen> {
             : _DepositFlowState.paymentFailed;
       });
       if (order.status == 'completed') {
-        await _openSuccessScreen(_pendingTransaction!);
+        await _returnToWalletAfterSuccess(_pendingTransaction!);
       } else if (order.status == 'pending') {
         _startTimers();
       }
+    } on PaymentApiException catch (error) {
+      final local = await _startLocalFallback(package);
+      if (!mounted) return;
+      final message = error.isUnavailable
+          ? 'Chưa bật kết nối SePay. Đặt PAYMENT_RECEIPTS_ENABLED=true trong backend/.env, cấu hình webhook, rồi restart. QR bên dưới chỉ để chuyển khoản; xu chỉ được cộng khi webhook xác nhận.'
+          : error.message;
+      setState(() => _paymentError = message);
+      if (local == null) _showSnack(message, false);
     } catch (error) {
-      if (mounted) {
-        setState(() => _paymentError = error.toString());
-        _showSnack(error.toString(), false);
-      }
+      final local = await _startLocalFallback(package);
+      if (!mounted) return;
+      final message =
+          'Không kết nối được máy chủ thanh toán. QR vẫn hiển thị; xu chỉ được cộng khi backend xác nhận. ${error.toString()}';
+      setState(() => _paymentError = message);
+      if (local == null) _showSnack(message, false);
     } finally {
       if (mounted) setState(() => _isCreatingOrder = false);
     }
+  }
+
+  Future<CoinTransaction?> _startLocalFallback(CoinPackage package) async {
+    final transferCode =
+        'MV${const Uuid().v4().replaceAll('-', '').substring(0, 12).toUpperCase()}';
+    final created = await _wallet.createPendingDeposit(
+      userId: _auth.currentUser.id,
+      package: package,
+      paymentMethod: _selectedMethod?.name ?? 'Chuyển khoản ngân hàng',
+      transferCode: transferCode,
+    );
+    if (!created.success || created.transaction == null) return null;
+    if (!mounted) return created.transaction;
+    setState(() {
+      _usingLocalFallback = true;
+      _localPending = created.transaction;
+      _localTransferCode = transferCode;
+      _selectedMethod ??= _paymentMethods.single;
+      _serverOrder = null;
+      _flowState = _DepositFlowState.awaitingPayment;
+      _timeRemaining = const Duration(minutes: 10);
+    });
+    _startLocalCountdown();
+    return created.transaction;
+  }
+
+  void _startLocalCountdown() {
+    _expiryTimer?.cancel();
+    _verificationTimer?.cancel();
+    final expiresAt = DateTime.now().add(const Duration(minutes: 10));
+    _expiryTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || !_usingLocalFallback) return;
+      final remaining = expiresAt.difference(DateTime.now());
+      setState(
+        () => _timeRemaining = remaining.isNegative ? Duration.zero : remaining,
+      );
+      if (_timeRemaining == Duration.zero) _expiryTimer?.cancel();
+    });
+  }
+
+  void _clearLocalFallback() {
+    _expiryTimer?.cancel();
+    _verificationTimer?.cancel();
+    _localPending = null;
+    _localTransferCode = null;
+    _usingLocalFallback = false;
   }
 
   Future<void> _goToPreviousStep() async {
@@ -322,6 +402,12 @@ class _DepositScreenState extends State<DepositScreen> {
     }
     if (_currentStep == 1) {
       setState(() => _flowState = _DepositFlowState.selectPackage);
+      return;
+    }
+    if (_usingLocalFallback) {
+      _clearLocalFallback();
+      if (!mounted) return;
+      setState(() => _flowState = _DepositFlowState.selectPaymentMethod);
       return;
     }
     try {
@@ -352,9 +438,76 @@ class _DepositScreenState extends State<DepositScreen> {
   }
 
   Future<void> _submitPaymentForVerification() async {
-    if (_serverOrder?.status != 'pending' || _isCheckingStatus) return;
-    setState(() => _flowState = _DepositFlowState.verifyingPayment);
-    await _refreshPaymentStatus();
+    if (_isCheckingStatus) return;
+    if (_serverOrder?.status == 'pending') {
+      setState(() => _flowState = _DepositFlowState.verifyingPayment);
+      await _refreshPaymentStatus();
+      return;
+    }
+    if (_usingLocalFallback || _localPending != null) {
+      await _retryServerWithoutLocalCredit();
+    }
+  }
+
+  /// Draft local chỉ để hiện QR. Không cộng xu khi chưa có biên lai server.
+  Future<void> _retryServerWithoutLocalCredit() async {
+    final package = _selectedPackage;
+    if (package == null || _isCheckingStatus) return;
+    setState(() {
+      _isCheckingStatus = true;
+      _flowState = _DepositFlowState.verifyingPayment;
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _requestKey ??= const Uuid().v4();
+      await prefs.setString('${_draftKey}_request', _requestKey!);
+      final order = await _verification.createOrder(
+        user: _auth.currentUser,
+        packageId: package.id,
+        promoCode: _promoCode.trim().toUpperCase(),
+        requestKey: _requestKey!,
+      );
+      await prefs.setString(_draftKey, order.id);
+      await _wallet.syncServerPayment(_auth.currentUser, order.id);
+      if (!mounted) return;
+      _clearLocalFallback();
+      setState(() {
+        _adoptOrder(order);
+        _isCheckingStatus = false;
+        _flowState = order.status == 'pending'
+            ? _DepositFlowState.verifyingPayment
+            : order.status == 'completed'
+            ? _DepositFlowState.paymentSuccess
+            : _DepositFlowState.paymentFailed;
+      });
+      if (order.status == 'completed') {
+        await _returnToWalletAfterSuccess(_pendingTransaction!);
+      } else if (order.status == 'pending') {
+        _startTimers();
+        await _refreshPaymentStatus();
+      }
+    } on PaymentApiException catch (error) {
+      if (!mounted) return;
+      final message = error.isUnavailable
+          ? 'SePay chưa được bật. Không thể xác nhận thanh toán. Cần PAYMENT_RECEIPTS_ENABLED=true và webhook.'
+          : error.message;
+      setState(() {
+        _isCheckingStatus = false;
+        _flowState = _DepositFlowState.awaitingPayment;
+        _paymentError = message;
+      });
+      _showSnack(message, false);
+    } catch (_) {
+      if (!mounted) return;
+      const message =
+          'Không kết nối được máy chủ thanh toán. Ứng dụng không tự cộng xu.';
+      setState(() {
+        _isCheckingStatus = false;
+        _flowState = _DepositFlowState.awaitingPayment;
+        _paymentError = message;
+      });
+      _showSnack(message, false);
+    }
   }
 
   Future<void> _retryPayment() async {
@@ -364,6 +517,7 @@ class _DepositScreenState extends State<DepositScreen> {
     await prefs.remove('${_draftKey}_request');
     if (!mounted) return;
     setState(() {
+      _clearLocalFallback();
       _serverOrder = null;
       _requestKey = null;
       _flowState = _DepositFlowState.awaitingPayment;
@@ -403,7 +557,7 @@ class _DepositScreenState extends State<DepositScreen> {
           orderCode: order.transferCode,
         );
 
-        await _openSuccessScreen(tx);
+        await _returnToWalletAfterSuccess(tx);
       } else if (refreshed.status != 'pending') {
         _expiryTimer?.cancel();
         _verificationTimer?.cancel();
@@ -434,26 +588,28 @@ class _DepositScreenState extends State<DepositScreen> {
     }
   }
 
-  Future<void> _openSuccessScreen(CoinTransaction transaction) async {
-    final order = _serverOrder;
-    if (!mounted ||
-        order == null ||
-        transaction.status != TransactionStatus.completed) {
-      return;
-    }
+  Future<void> _returnToWalletAfterSuccess(CoinTransaction transaction) async {
+    if (!mounted || transaction.status != TransactionStatus.completed) return;
+    _expiryTimer?.cancel();
+    _verificationTimer?.cancel();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_draftKey);
     await prefs.remove('${_draftKey}_request');
     if (!mounted) return;
-    await Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => PaymentSuccessScreen(
-          transaction: transaction,
-          package: order.package,
-          paidAmount: order.amount.toDouble(),
+    final coins = transaction.amount;
+    final messenger = ScaffoldMessenger.of(context);
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(true);
+    }
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('Thanh toán thành công! Đã cộng +$coins xu vào ví.'),
+          backgroundColor: const Color(0xFF00B894),
+          behavior: SnackBarBehavior.floating,
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildPaymentInfoRow(String label, String value) {
@@ -481,8 +637,27 @@ class _DepositScreenState extends State<DepositScreen> {
     );
   }
 
+  Widget _buildQrImage() {
+    return Container(
+      width: 260,
+      height: 260,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      padding: const EdgeInsets.all(8),
+      child: VietQrImage(
+        urls: _dynamicQrUrls,
+        payload: _emvCoPayload,
+        size: 244,
+      ),
+    );
+  }
+
   Widget _buildPaymentDetails(bool isDark) {
-    final method = _selectedMethod!;
+    final method = _selectedMethod ?? _paymentMethods.single;
+    final transferCode = _transferCode ?? '—';
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -507,40 +682,23 @@ class _DepositScreenState extends State<DepositScreen> {
             ],
           ),
           const SizedBox(height: 12),
+          _buildPaymentInfoRow('Ngân hàng', 'Sacombank (STB)'),
+          _buildPaymentInfoRow(
+            'Số tài khoản',
+            _serverOrder?.accountNumber ?? PaymentOrder.defaultAccountNumber,
+          ),
+          _buildPaymentInfoRow(
+            'Chủ tài khoản',
+            _serverOrder?.accountName ?? PaymentOrder.defaultAccountName,
+          ),
           _buildPaymentInfoRow('Số tiền', '${_formatVnd(_finalPrice)} đ'),
+          _buildPaymentInfoRow('Nội dung chuyển khoản', transferCode),
           Text(
             'Mã QR đã chứa thông tin tài khoản nhận tiền và số tiền giao dịch.',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 12),
-          Center(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                _dynamicQrUrl,
-                width: 220,
-                height: 286,
-                fit: BoxFit.contain,
-                loadingBuilder: (context, child, progress) => progress == null
-                    ? child
-                    : const SizedBox(
-                        width: 220,
-                        height: 286,
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                errorBuilder: (context, error, stackTrace) => Container(
-                  width: 220,
-                  height: 286,
-                  alignment: Alignment.center,
-                  color: Colors.grey.shade100,
-                  child: const Text(
-                    'Không tải được mã QR. Kiểm tra mạng và tải lại; không sử dụng QR cũ.',
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          Center(child: _buildQrImage()),
           const SizedBox(height: 8),
           Center(
             child: Text(
@@ -552,14 +710,34 @@ class _DepositScreenState extends State<DepositScreen> {
           const SizedBox(height: 10),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
             decoration: BoxDecoration(
               color: Colors.orange.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Text(
-              'Nội dung chuyển khoản: $_transferCode',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Nội dung chuyển khoản: $transferCode',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Sao chép',
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  onPressed: () async {
+                    if (transferCode == '—' || transferCode.isEmpty) return;
+                    await Clipboard.setData(ClipboardData(text: transferCode));
+                    if (mounted) {
+                      _showSnack('Đã sao chép nội dung chuyển khoản.', true);
+                    }
+                  },
+                ),
+              ],
             ),
           ),
         ],
@@ -623,7 +801,7 @@ class _DepositScreenState extends State<DepositScreen> {
                   )
                 : const Icon(Icons.refresh_rounded, size: 18),
             label: Text(
-              _isCheckingStatus ? 'Đang cập nhật...' : 'Cập nhật trạng thái',
+              _isCheckingStatus ? 'Đang kiểm tra...' : 'Kiểm tra thanh toán',
             ),
           ),
         ],
@@ -926,9 +1104,12 @@ class _DepositScreenState extends State<DepositScreen> {
   }
 
   Widget _buildConfirmationStep(bool isDark) {
-    final hasPending =
-        _flowState == _DepositFlowState.verifyingPayment &&
-        _serverOrder != null;
+    final hasLocalPending =
+        _usingLocalFallback &&
+        _localPending != null &&
+        _localPending!.status == TransactionStatus.pending;
+    final hasServerPending = _serverOrder?.status == 'pending';
+    final isVerifying = _flowState == _DepositFlowState.verifyingPayment;
     final isFailed =
         _flowState == _DepositFlowState.paymentFailed ||
         _pendingTransaction?.status == TransactionStatus.failed;
@@ -945,8 +1126,8 @@ class _DepositScreenState extends State<DepositScreen> {
         const SizedBox(height: 14),
         _buildSummaryCard(isDark),
         const SizedBox(height: 14),
-        if (_serverOrder?.status == 'pending') _buildPaymentDetails(isDark),
-        if (_serverOrder?.status == 'pending') ...[
+        if (hasServerPending || hasLocalPending) _buildPaymentDetails(isDark),
+        if (hasServerPending || hasLocalPending) ...[
           const SizedBox(height: 8),
           Text(
             'Giao dịch hết hạn sau: ${_formatRemaining(_timeRemaining)}',
@@ -961,7 +1142,7 @@ class _DepositScreenState extends State<DepositScreen> {
           Text(_paymentError!, style: const TextStyle(color: Colors.redAccent)),
         ],
         const SizedBox(height: 14),
-        if (hasPending && !isFailed)
+        if (isVerifying && (hasServerPending || hasLocalPending) && !isFailed)
           _buildPendingStatus()
         else if (isFailed)
           _buildFailedStatus()
@@ -973,29 +1154,38 @@ class _DepositScreenState extends State<DepositScreen> {
               color: Colors.blue.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Text(
-              'Sau khi chuyển khoản, gửi yêu cầu xác minh. Coin chỉ được cộng khi hệ thống nhận được xác nhận thanh toán.',
-              style: TextStyle(fontSize: 12),
+            child: Text(
+              hasLocalPending
+                  ? 'Máy chủ thanh toán chưa sẵn sàng (503 hoặc không kết nối). QR vẫn hiển thị. Ứng dụng không tự cộng xu. Cần chạy backend/server.js, đặt PAYMENT_RECEIPTS_ENABLED=true và cấu hình webhook SePay.'
+                  : 'Sau khi chuyển khoản, gửi yêu cầu xác minh. Coin chỉ được cộng khi hệ thống nhận được xác nhận thanh toán.',
+              style: const TextStyle(fontSize: 12),
             ),
           ),
         const SizedBox(height: 16),
-        if (hasPending && !isFailed)
+        if (hasLocalPending && !isFailed)
           _buildWizardActions(
             primaryLabel: _isCheckingStatus
-                ? 'Đang cập nhật...'
-                : 'Cập nhật trạng thái',
+                ? 'Đang kiểm tra...'
+                : 'Kiểm tra thanh toán',
+            onPrimary: _isCheckingStatus ? null : _retryServerWithoutLocalCredit,
+          )
+        else if (isVerifying && hasServerPending && !isFailed)
+          _buildWizardActions(
+            primaryLabel: _isCheckingStatus
+                ? 'Đang kiểm tra...'
+                : 'Kiểm tra thanh toán',
             onPrimary: _isCheckingStatus ? null : _refreshPaymentStatus,
           )
         else
           _buildWizardActions(
             primaryLabel: _isCreatingOrder
                 ? 'Đang tạo đơn...'
-                : isFailed || _serverOrder == null
+                : isFailed || (_serverOrder == null && !hasLocalPending)
                 ? 'Tạo giao dịch mới'
-                : 'Tôi đã chuyển khoản',
+                : 'Kiểm tra thanh toán',
             onPrimary: _isCreatingOrder
                 ? null
-                : isFailed || _serverOrder == null
+                : isFailed || (_serverOrder == null && !hasLocalPending)
                 ? _retryPayment
                 : _submitPaymentForVerification,
           ),

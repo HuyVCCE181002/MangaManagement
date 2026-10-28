@@ -18,6 +18,7 @@ import 'login_screen.dart';
 import 'user_management_screen.dart';
 import 'wallet_screen.dart';
 import 'coin_package_management_screen.dart';
+import 'admin_dashboard_screen.dart';
 import 'genre_management_screen.dart';
 import 'profile_screen.dart';
 import '../services/daily_check_in_service.dart';
@@ -33,7 +34,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   final MangaService _service = MangaService.instance;
   final AuthService _auth = AuthService.instance;
   final ThemeService _theme = ThemeService.instance;
@@ -68,13 +70,24 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _dailyCheckIn.addListener(_onStateChanged);
     _notification.addListener(_onStateChanged);
 
-    // Bắt đầu chạy Dart WebSocket server trên service BE
-    NotificationServerService.instance.startServer();
+    _initRealtimeNotifications();
+    _attachNewNotificationListener();
+  }
 
-    // Khởi tạo client WebSocket lắng nghe thông báo
-    _notification.init();
+  Future<void> _initRealtimeNotifications() async {
+    try {
+      await NotificationServerService.instance.startServer();
+    } catch (error) {
+      debugPrint('[HomeScreen] WebSocket server không khởi động được: $error');
+    }
+    try {
+      await _notification.init();
+    } catch (error) {
+      debugPrint('[HomeScreen] Notification client init failed: $error');
+    }
+  }
 
-    // Lắng nghe stream để hiện SnackBar tức thời khi có thông báo mới
+  void _attachNewNotificationListener() {
     _newNotificationSub = _notification.onNewNotification.listen((notif) {
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
@@ -92,7 +105,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   children: [
                     Text(
                       notif.title,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
                     ),
                     Text(
                       notif.message,
@@ -144,7 +160,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Future<void> _loadBookmarks() async {
     final currentUser = _auth.currentUser;
     if (!currentUser.isGuest) {
-      final bookmarks = await DatabaseHelper.instance.getUserBookmarks(currentUser.id);
+      final bookmarks = await DatabaseHelper.instance.getUserBookmarks(
+        currentUser.id,
+      );
       if (mounted) {
         setState(() {
           _userBookmarks = bookmarks;
@@ -186,22 +204,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
-//   Future<void> _loadMangas() async {
-//     setState(() => _isLoading = true);
-//     final list = await _service.getMangas();
-//     setState(() {
-//       _allMangas = list;
-//       _isLoading = false;
-//     });
-//   }
+  //   Future<void> _loadMangas() async {
+  //     setState(() => _isLoading = true);
+  //     final list = await _service.getMangas();
+  //     setState(() {
+  //       _allMangas = list;
+  //       _isLoading = false;
+  //     });
+  //   }
 
   List<Manga> get _filteredMangas {
-    final canSeeHidden = _auth.currentUser.role.canDeleteManga || _auth.currentUser.role.canEditManga;
+    final canSeeHidden =
+        _auth.currentUser.role.canDeleteManga ||
+        _auth.currentUser.role.canEditManga;
     return _allMangas.where((m) {
       if (m.isHidden && !canSeeHidden) return false;
-      final matchesSearch = m.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+      final matchesSearch =
+          m.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           m.author.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesGenre = _selectedGenre == 'Tất cả' || m.genre == _selectedGenre;
+      final matchesGenre =
+          _selectedGenre == 'Tất cả' || m.genre == _selectedGenre;
       return matchesSearch && matchesGenre;
     }).toList();
   }
@@ -216,7 +238,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Manga? get _featuredManga {
     if (_allMangas.isEmpty) return null;
-    final list = List<Manga>.from(_allMangas)..sort((a, b) => b.rating.compareTo(a.rating));
+    final list = List<Manga>.from(_allMangas)
+      ..sort((a, b) => b.rating.compareTo(a.rating));
     return list.first;
   }
 
@@ -238,7 +261,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         backgroundColor: theme.cardColor,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: isDark ? const Color(0xFF2E3440) : const Color(0xFFE2E5EE)),
+          side: BorderSide(
+            color: isDark ? const Color(0xFF2E3440) : const Color(0xFFE2E5EE),
+          ),
         ),
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         child: ConstrainedBox(
@@ -253,7 +278,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     IconButton(
-                      icon: Icon(Icons.close_rounded, color: theme.colorScheme.onSurfaceVariant, size: 20),
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: theme.colorScheme.onSurfaceVariant,
+                        size: 20,
+                      ),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                       tooltip: 'Đóng',
@@ -269,7 +298,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       Navigator.pop(ctx);
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => const ProfileScreen(),
+                        ),
                       );
                     }
                   },
@@ -282,18 +313,31 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                     padding: const EdgeInsets.all(2),
                     child: ClipOval(
-                      child: (user.avatarUrl != null && user.avatarUrl!.isNotEmpty)
+                      child:
+                          (user.avatarUrl != null && user.avatarUrl!.isNotEmpty)
                           ? Image.network(
                               user.avatarUrl!,
                               fit: BoxFit.cover,
                               errorBuilder: (_, _, _) => CircleAvatar(
-                                backgroundColor: user.role.color.withValues(alpha: 0.18),
-                                child: Icon(user.role.icon, size: 36, color: user.role.color),
+                                backgroundColor: user.role.color.withValues(
+                                  alpha: 0.18,
+                                ),
+                                child: Icon(
+                                  user.role.icon,
+                                  size: 36,
+                                  color: user.role.color,
+                                ),
                               ),
                             )
                           : CircleAvatar(
-                              backgroundColor: user.role.color.withValues(alpha: 0.18),
-                              child: Icon(user.role.icon, size: 36, color: user.role.color),
+                              backgroundColor: user.role.color.withValues(
+                                alpha: 0.18,
+                              ),
+                              child: Icon(
+                                user.role.icon,
+                                size: 36,
+                                color: user.role.color,
+                              ),
                             ),
                     ),
                   ),
@@ -302,24 +346,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 Text(
                   user.displayName,
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.onSurface,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '@${user.username}',
-                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: user.role.color.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: user.role.color.withValues(alpha: 0.4)),
+                    border: Border.all(
+                      color: user.role.color.withValues(alpha: 0.4),
+                    ),
                   ),
                   child: Text(
                     'Vai trò: ${user.role.label}',
-                    style: TextStyle(color: user.role.color, fontWeight: FontWeight.bold, fontSize: 12),
+                    style: TextStyle(
+                      color: user.role.color,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -328,21 +388,55 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF10121A) : const Color(0xFFF1F3F7),
+                    color: isDark
+                        ? const Color(0xFF10121A)
+                        : const Color(0xFFF1F3F7),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: isDark ? const Color(0xFF262A3B) : const Color(0xFFE2E5EE)),
+                    border: Border.all(
+                      color: isDark
+                          ? const Color(0xFF262A3B)
+                          : const Color(0xFFE2E5EE),
+                    ),
                   ),
                   child: Column(
                     children: [
                       _buildPermissionRow('Xem & tìm kiếm truyện', true),
-                      _buildPermissionRow('Lưu truyện yêu thích', user.role.canFavorite),
-                      _buildPermissionRow('Ghi nhớ tiến độ đọc', user.role.canTrackProgress),
-                      _buildPermissionRow('Thêm truyện mới', user.role.canAddManga),
-                      _buildPermissionRow('Chỉnh sửa truyện', user.role.canEditManga),
-                      _buildPermissionRow('Xóa truyện', user.role.canDeleteManga),
-                      _buildPermissionRow('Quản trị tài khoản', user.role.canManageUsers),
-                      _buildPermissionRow('Sử dụng ví coins', user.role.canAccessWallet),
-                      _buildPermissionRow('Quản lý gói coins', user.role.canManageCoinPackages),
+                      _buildPermissionRow(
+                        'Lưu truyện yêu thích',
+                        user.role.canFavorite,
+                      ),
+                      _buildPermissionRow(
+                        'Ghi nhớ tiến độ đọc',
+                        user.role.canTrackProgress,
+                      ),
+                      _buildPermissionRow(
+                        'Thêm truyện mới',
+                        user.role.canAddManga,
+                      ),
+                      _buildPermissionRow(
+                        'Chỉnh sửa truyện',
+                        user.role.canEditManga,
+                      ),
+                      _buildPermissionRow(
+                        'Xóa truyện',
+                        user.role.canDeleteManga,
+                      ),
+                      _buildPermissionRow(
+                        'Quản trị tài khoản',
+                        user.role.canManageUsers,
+                      ),
+                      _buildPermissionRow(
+                        'Dashboard quản trị',
+                        user.role.canViewAdminDashboard,
+                      ),
+                      _buildPermissionRow(
+                        'Sử dụng ví coins',
+                        user.role.canAccessWallet,
+                      ),
+                      _buildPermissionRow(
+                        'Quản lý gói coins',
+                        user.role.canManageCoinPackages,
+                      ),
                     ],
                   ),
                 ),
@@ -355,15 +449,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       backgroundColor: const Color(0xFF6C5CE7),
                       foregroundColor: Colors.white,
                       minimumSize: const Size.fromHeight(44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     icon: const Icon(Icons.person_pin_rounded, size: 20),
-                    label: const Text('Hồ Sơ Của Tôi (My Profile)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    label: const Text(
+                      'Hồ Sơ Của Tôi (My Profile)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
                     onPressed: () {
                       Navigator.pop(ctx);
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => const ProfileScreen(),
+                        ),
                       );
                     },
                   ),
@@ -375,14 +479,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       foregroundColor: const Color(0xFFFFB800),
                       side: const BorderSide(color: Color(0xFFFFB800)),
                       minimumSize: const Size.fromHeight(44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     icon: const Icon(Icons.event_available_rounded, size: 20),
                     label: Text(
                       _dailyCheckIn.hasCheckedInToday
                           ? 'Đã Điểm Danh (Chuỗi: ${_dailyCheckIn.currentStreak} ngày)'
                           : 'Điểm Danh Hàng Ngày (Nhận Coins)',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
                     ),
                     onPressed: () {
                       Navigator.pop(ctx);
@@ -393,21 +502,61 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ],
 
                 // Các nút hành động
+                if (user.role.canViewAdminDashboard) ...[
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0984E3),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size.fromHeight(44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(Icons.dashboard_rounded, size: 20),
+                    label: const Text(
+                      'Dashboard quản trị',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const AdminDashboardScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ],
                 if (user.role.canManageCoinPackages) ...[
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFFFB300),
                       foregroundColor: Colors.white,
                       minimumSize: const Size.fromHeight(44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     icon: const Icon(Icons.monetization_on_rounded, size: 20),
-                    label: const Text('Quản Lý Gói Coins', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    label: const Text(
+                      'Quản Lý Gói Coins',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
                     onPressed: () {
                       Navigator.pop(ctx);
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => const CoinPackageManagementScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => const CoinPackageManagementScreen(),
+                        ),
                       );
                     },
                   ),
@@ -419,15 +568,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       backgroundColor: const Color(0xFFE84393),
                       foregroundColor: Colors.white,
                       minimumSize: const Size.fromHeight(44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     icon: const Icon(Icons.manage_accounts_rounded, size: 20),
-                    label: const Text('Quản Lý Người Dùng & Phân Quyền', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    label: const Text(
+                      'Quản Lý Người Dùng & Phân Quyền',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
                     onPressed: () {
                       Navigator.pop(ctx);
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => const UserManagementScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => const UserManagementScreen(),
+                        ),
                       );
                     },
                   ),
@@ -440,10 +599,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       foregroundColor: const Color(0xFF6C5CE7),
                       side: const BorderSide(color: Color(0xFF6C5CE7)),
                       minimumSize: const Size.fromHeight(44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
-                    icon: const Icon(Icons.account_balance_wallet_rounded, size: 20),
-                    label: const Text('Ví Coins', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    icon: const Icon(
+                      Icons.account_balance_wallet_rounded,
+                      size: 20,
+                    ),
+                    label: const Text(
+                      'Ví Coins',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     onPressed: () {
                       Navigator.pop(ctx);
                       Navigator.push(
@@ -459,10 +629,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       backgroundColor: const Color(0xFF6C5CE7),
                       foregroundColor: Colors.white,
                       minimumSize: const Size.fromHeight(44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     icon: const Icon(Icons.login_rounded, size: 20),
-                    label: const Text('Đăng Nhập / Đăng Ký Tài Khoản', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    label: const Text(
+                      'Đăng Nhập / Đăng Ký Tài Khoản',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
                     onPressed: () {
                       Navigator.pop(ctx);
                       Navigator.push(
@@ -477,10 +655,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       foregroundColor: Colors.redAccent,
                       side: const BorderSide(color: Colors.redAccent),
                       minimumSize: const Size.fromHeight(44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     icon: const Icon(Icons.logout_rounded, size: 20),
-                    label: const Text('Đăng Xuất', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    label: const Text(
+                      'Đăng Xuất',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     onPressed: () async {
                       final messenger = ScaffoldMessenger.of(context);
                       Navigator.pop(ctx);
@@ -508,7 +694,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface)),
+          Text(
+            title,
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface),
+          ),
           Icon(
             allowed ? Icons.check_circle_rounded : Icons.cancel_rounded,
             size: 16,
@@ -548,7 +737,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.auto_stories_rounded, color: Colors.white, size: 20),
+              child: const Icon(
+                Icons.auto_stories_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 10),
             Text(
@@ -570,14 +763,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               onPressed: () async {
                 await Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const GenreManagementScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const GenreManagementScreen(),
+                  ),
                 );
                 _loadMangas();
               },
             ),
           // Nút chuyển đổi Dark Mode / Light Mode
           IconButton(
-            tooltip: isDark ? 'Chuyển sang Chế độ Sáng (Light)' : 'Chuyển sang Chế độ Tối (Dark)',
+            tooltip: isDark
+                ? 'Chuyển sang Chế độ Sáng (Light)'
+                : 'Chuyển sang Chế độ Tối (Dark)',
             icon: Icon(
               isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
               color: isDark ? Colors.amber : const Color(0xFF6C5CE7),
@@ -597,16 +794,24 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     top: -4,
                     right: -4,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.redAccent,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: isDark ? const Color(0xFF1E222D) : Colors.white,
+                          color: isDark
+                              ? const Color(0xFF1E222D)
+                              : Colors.white,
                           width: 1.5,
                         ),
                       ),
-                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
                       child: Center(
                         child: Text(
                           _notification.unreadCount > 99
@@ -674,7 +879,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 },
                 borderRadius: BorderRadius.circular(20),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
                       colors: [Color(0xFFFFB300), Color(0xFFFF6B6B)],
@@ -684,11 +892,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.monetization_on_rounded, color: Colors.white, size: 14),
+                      const Icon(
+                        Icons.monetization_on_rounded,
+                        color: Colors.white,
+                        size: 14,
+                      ),
                       const SizedBox(width: 3),
                       Text(
                         _formatCoins(_wallet.balance),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -698,7 +914,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
           // Nút chuyển đổi chế độ xem Grid (Lưới) / List (Danh sách)
           IconButton(
-            tooltip: _isGridView ? 'Chuyển sang xem danh sách' : 'Chuyển sang xem dạng lưới',
+            tooltip: _isGridView
+                ? 'Chuyển sang xem danh sách'
+                : 'Chuyển sang xem dạng lưới',
             icon: Icon(
               _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
               color: theme.colorScheme.onSurfaceVariant,
@@ -714,39 +932,64 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF6C5CE7),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
                       elevation: 1,
                     ),
                     icon: const Icon(Icons.login_rounded, size: 16),
-                    label: const Text('Đăng nhập', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    label: const Text(
+                      'Đăng nhập',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
                     onPressed: _openLoginScreen,
                   )
                 : InkWell(
                     onTap: _showProfileDialog,
                     borderRadius: BorderRadius.circular(20),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: currentUser.role.color.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: currentUser.role.color.withValues(alpha: 0.4)),
+                        border: Border.all(
+                          color: currentUser.role.color.withValues(alpha: 0.4),
+                        ),
                       ),
                       child: Row(
                         children: [
-                          if (currentUser.avatarUrl != null && currentUser.avatarUrl!.isNotEmpty) ...[
+                          if (currentUser.avatarUrl != null &&
+                              currentUser.avatarUrl!.isNotEmpty) ...[
                             ClipOval(
                               child: Image.network(
                                 currentUser.avatarUrl!,
                                 width: 18,
                                 height: 18,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) => Icon(currentUser.role.icon, size: 16, color: currentUser.role.color),
+                                errorBuilder: (_, _, _) => Icon(
+                                  currentUser.role.icon,
+                                  size: 16,
+                                  color: currentUser.role.color,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 6),
                           ] else ...[
-                            Icon(currentUser.role.icon, size: 16, color: currentUser.role.color),
+                            Icon(
+                              currentUser.role.icon,
+                              size: 16,
+                              color: currentUser.role.color,
+                            ),
                             const SizedBox(width: 6),
                           ],
                           Text(
@@ -769,7 +1012,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           indicatorWeight: 3,
           labelColor: const Color(0xFF6C5CE7),
           unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-          labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          labelStyle: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
           tabs: [
             Tab(
               child: Row(
@@ -813,15 +1059,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               if (currentUser.isGuest)
                 Container(
                   margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF6C5CE7).withValues(alpha: isDark ? 0.15 : 0.08),
+                    color: const Color(
+                      0xFF6C5CE7,
+                    ).withValues(alpha: isDark ? 0.15 : 0.08),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF6C5CE7).withValues(alpha: 0.3)),
+                    border: Border.all(
+                      color: const Color(0xFF6C5CE7).withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.info_outline_rounded, color: Color(0xFF6C5CE7), size: 20),
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: Color(0xFF6C5CE7),
+                        size: 20,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -836,13 +1093,24 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF6C5CE7),
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
                           minimumSize: Size.zero,
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                         onPressed: _openLoginScreen,
-                        child: const Text('Đăng nhập', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          'Đăng nhập',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -857,11 +1125,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   style: TextStyle(color: theme.colorScheme.onSurface),
                   decoration: InputDecoration(
                     hintText: 'Tìm kiếm truyện theo tên hoặc tác giả...',
-                    hintStyle: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 14),
-                    prefixIcon: Icon(Icons.search_rounded, color: theme.colorScheme.onSurfaceVariant),
+                    hintStyle: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontSize: 14,
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                     suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
-                            icon: Icon(Icons.clear_rounded, color: theme.colorScheme.onSurfaceVariant, size: 20),
+                            icon: Icon(
+                              Icons.clear_rounded,
+                              color: theme.colorScheme.onSurfaceVariant,
+                              size: 20,
+                            ),
                             onPressed: () {
                               _searchController.clear();
                               setState(() => _searchQuery = '');
@@ -869,8 +1147,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           )
                         : null,
                     filled: true,
-                    fillColor: isDark ? const Color(0xFF161924) : const Color(0xFFE9EDF5),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    fillColor: isDark
+                        ? const Color(0xFF161924)
+                        : const Color(0xFFE9EDF5),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -895,13 +1178,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         label: Text(genre),
                         selected: isSelected,
                         selectedColor: const Color(0xFF6C5CE7),
-                        backgroundColor: isDark ? const Color(0xFF161924) : const Color(0xFFE9EDF5),
+                        backgroundColor: isDark
+                            ? const Color(0xFF161924)
+                            : const Color(0xFFE9EDF5),
                         labelStyle: TextStyle(
-                          color: isSelected ? Colors.white : theme.colorScheme.onSurfaceVariant,
+                          color: isSelected
+                              ? Colors.white
+                              : theme.colorScheme.onSurfaceVariant,
                           fontSize: 12,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
                         ),
-                        onSelected: (_) => setState(() => _selectedGenre = genre),
+                        onSelected: (_) =>
+                            setState(() => _selectedGenre = genre),
                       ),
                     );
                   },
@@ -921,16 +1211,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
                           // Tab 2: Tủ sách yêu thích
                           currentUser.isGuest
-                              ? _buildGuestPrompt('Tủ sách yêu thích cá nhân', Icons.favorite_border_rounded)
+                              ? _buildGuestPrompt(
+                                  'Tủ sách yêu thích cá nhân',
+                                  Icons.favorite_border_rounded,
+                                )
                               : _buildMangaDisplay(
                                   displayFavorites,
-                                  emptyMessage: 'Chưa có bộ truyện nào trong tủ sách yêu thích.',
+                                  emptyMessage:
+                                      'Chưa có bộ truyện nào trong tủ sách yêu thích.',
                                   showBannerAndShelf: false,
                                 ),
 
                           // Tab 3: Bookmark
                           currentUser.isGuest
-                              ? _buildGuestPrompt('Đánh dấu trang (Bookmark)', Icons.bookmark_border)
+                              ? _buildGuestPrompt(
+                                  'Đánh dấu trang (Bookmark)',
+                                  Icons.bookmark_border,
+                                )
                               : _buildBookmarkTab(),
                         ],
                       ),
@@ -989,7 +1286,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.menu_book_outlined, size: 54, color: Colors.grey),
+              const Icon(
+                Icons.menu_book_outlined,
+                size: 54,
+                color: Colors.grey,
+              ),
               const SizedBox(height: 12),
               Text(
                 emptyMessage,
@@ -1040,7 +1341,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                         Text(
                           '${continueReading.length} truyện',
-                          style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     ),
@@ -1059,13 +1363,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           onTap: () async {
                             await Navigator.push<bool>(
                               context,
-                              MaterialPageRoute(builder: (_) => MangaDetailScreen(mangaId: m.id)),
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    MangaDetailScreen(mangaId: m.id),
+                              ),
                             );
                             _loadMangas();
                           },
                           onQuickNextChapter: () async {
                             if (m.currentChapter < m.totalChapters) {
-                              await _service.updateChapter(m.id, m.currentChapter + 1);
+                              await _service.updateChapter(
+                                m.id,
+                                m.currentChapter + 1,
+                              );
                               _loadMangas();
                             }
                           },
@@ -1086,7 +1396,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    _selectedGenre == 'Tất cả' ? 'Tất cả truyện tranh' : 'Thể loại: $_selectedGenre',
+                    _selectedGenre == 'Tất cả'
+                        ? 'Tất cả truyện tranh'
+                        : 'Thể loại: $_selectedGenre',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -1097,11 +1409,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     children: [
                       Text(
                         '${mangas.length} bộ',
-                        style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                       const SizedBox(width: 8),
                       Icon(
-                        _isGridView ? Icons.grid_view_rounded : Icons.view_list_rounded,
+                        _isGridView
+                            ? Icons.grid_view_rounded
+                            : Icons.view_list_rounded,
                         size: 16,
                         color: const Color(0xFF6C5CE7),
                       ),
@@ -1136,23 +1453,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       crossAxisSpacing: 12,
                       mainAxisSpacing: 14,
                     ),
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final manga = mangas[index];
-                        return MangaGridCard(
-                          manga: manga,
-                          onTap: () async {
-                            await Navigator.push<bool>(
-                              context,
-                              MaterialPageRoute(builder: (_) => MangaDetailScreen(mangaId: manga.id)),
-                            );
-                            _loadMangas();
-                          },
-                          onFavoriteToggle: () => _handleFavoriteToggle(manga.id),
-                        );
-                      },
-                      childCount: mangas.length,
-                    ),
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      final manga = mangas[index];
+                      return MangaGridCard(
+                        manga: manga,
+                        onTap: () async {
+                          await Navigator.push<bool>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  MangaDetailScreen(mangaId: manga.id),
+                            ),
+                          );
+                          _loadMangas();
+                        },
+                        onFavoriteToggle: () => _handleFavoriteToggle(manga.id),
+                      );
+                    }, childCount: mangas.length),
                   );
                 },
               ),
@@ -1161,23 +1478,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final manga = mangas[index];
-                    return MangaCard(
-                      manga: manga,
-                      onTap: () async {
-                        await Navigator.push<bool>(
-                          context,
-                          MaterialPageRoute(builder: (_) => MangaDetailScreen(mangaId: manga.id)),
-                        );
-                        _loadMangas();
-                      },
-                      onFavoriteToggle: () => _handleFavoriteToggle(manga.id),
-                    );
-                  },
-                  childCount: mangas.length,
-                ),
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final manga = mangas[index];
+                  return MangaCard(
+                    manga: manga,
+                    onTap: () async {
+                      await Navigator.push<bool>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MangaDetailScreen(mangaId: manga.id),
+                        ),
+                      );
+                      _loadMangas();
+                    },
+                    onFavoriteToggle: () => _handleFavoriteToggle(manga.id),
+                  );
+                }, childCount: mangas.length),
               ),
             ),
 
@@ -1213,7 +1529,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             Image.network(
               manga.coverUrl,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[900]),
+              errorBuilder: (context, error, stackTrace) =>
+                  Container(color: Colors.grey[900]),
             ),
             // Gradient phủ mờ nền
             Container(
@@ -1222,8 +1539,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
                   colors: [
-                    isDark ? const Color(0xFF0F1017).withValues(alpha: 0.95) : Colors.white.withValues(alpha: 0.95),
-                    isDark ? const Color(0xFF0F1017).withValues(alpha: 0.85) : Colors.white.withValues(alpha: 0.85),
+                    isDark
+                        ? const Color(0xFF0F1017).withValues(alpha: 0.95)
+                        : Colors.white.withValues(alpha: 0.95),
+                    isDark
+                        ? const Color(0xFF0F1017).withValues(alpha: 0.85)
+                        : Colors.white.withValues(alpha: 0.85),
                     isDark ? Colors.transparent : Colors.transparent,
                   ],
                   stops: const [0.0, 0.65, 1.0],
@@ -1243,7 +1564,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       width: 95,
                       height: 148,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(width: 95, color: Colors.grey),
+                      errorBuilder: (context, error, stackTrace) =>
+                          Container(width: 95, color: Colors.grey),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -1257,7 +1579,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.amber,
                                 borderRadius: BorderRadius.circular(6),
@@ -1272,7 +1597,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               ),
                             ),
                             const SizedBox(width: 8),
-                            const Icon(Icons.star_rounded, color: Colors.amber, size: 16),
+                            const Icon(
+                              Icons.star_rounded,
+                              color: Colors.amber,
+                              size: 16,
+                            ),
                             Text(
                               ' ${manga.rating}',
                               style: TextStyle(
@@ -1299,34 +1628,54 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           'Tác giả: ${manga.author} • ${manga.genre}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
                         const SizedBox(height: 6),
                         Text(
                           manga.description,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant, height: 1.3),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: theme.colorScheme.onSurfaceVariant,
+                            height: 1.3,
+                          ),
                         ),
                         const SizedBox(height: 10),
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF6C5CE7),
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
                             minimumSize: Size.zero,
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
                           icon: const Icon(Icons.menu_book_rounded, size: 16),
                           label: Text(
-                            manga.currentChapter > 0 ? 'Đọc tiếp Chap ${manga.currentChapter}' : 'Bắt đầu đọc',
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            manga.currentChapter > 0
+                                ? 'Đọc tiếp Chap ${manga.currentChapter}'
+                                : 'Bắt đầu đọc',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           onPressed: () async {
                             await Navigator.push<bool>(
                               context,
-                              MaterialPageRoute(builder: (_) => MangaDetailScreen(mangaId: manga.id)),
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    MangaDetailScreen(mangaId: manga.id),
+                              ),
                             );
                             _loadMangas();
                           },
@@ -1368,24 +1717,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             const SizedBox(height: 14),
             Text(
               title,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               'Bạn đang duyệt ở chế độ Khách. Vui lòng đăng nhập hoặc tạo tài khoản Độc giả để lưu trữ các bộ truyện yêu thích và đồng bộ tiến độ đọc.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13, height: 1.4),
+              style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF6C5CE7),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               icon: const Icon(Icons.login_rounded, size: 18),
-              label: const Text('Đăng Nhập / Đăng Ký Ngay', style: TextStyle(fontWeight: FontWeight.bold)),
+              label: const Text(
+                'Đăng Nhập / Đăng Ký Ngay',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               onPressed: _openLoginScreen,
             ),
           ],
@@ -1397,9 +1762,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   /// Tab Bookmark hiển thị danh sách các bookmark của user
   Widget _buildBookmarkTab() {
     if (_userBookmarks.isEmpty) {
-      return const Center(
-        child: Text('Bạn chưa đánh dấu trang nào.'),
-      );
+      return const Center(child: Text('Bạn chưa đánh dấu trang nào.'));
     }
     return ListView.builder(
       padding: const EdgeInsets.all(16),
@@ -1416,7 +1779,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 width: 50,
                 height: 70,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(width: 50, color: Colors.grey),
+                errorBuilder: (context, error, stackTrace) =>
+                    Container(width: 50, color: Colors.grey),
               ),
             ),
             title: Text(

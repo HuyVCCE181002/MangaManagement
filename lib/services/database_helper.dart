@@ -1,6 +1,7 @@
 // Conditional imports: chọn factory theo nền tảng (web vs non-web)
 import 'package:flutter/foundation.dart';
-import 'database_factory_io.dart' if (dart.library.html) 'database_factory_web.dart';
+import 'database_factory_io.dart'
+    if (dart.library.html) 'database_factory_web.dart';
 import '../models/bookmark.dart';
 import '../models/chapter.dart';
 import '../models/manga.dart';
@@ -11,6 +12,7 @@ import '../models/coin_package.dart';
 import '../models/daily_check_in.dart';
 import '../models/payment_order.dart';
 import '../models/notification_item.dart';
+import '../models/admin_stats.dart';
 
 class DatabaseHelper {
   static String _dbName = 'manga_vault.db';
@@ -20,12 +22,15 @@ class DatabaseHelper {
     _dbName = name;
     _database = null;
   }
+
   // Lịch sử version:
   //   v1: users + mangas (bản đầu)
   //   v2: thêm chapters + user_purchased_chapters + bookmarks
   //   v3: thêm wallets + coin_transactions + coin_packages
   // v4: thêm wallet_id cho coin_transactions (sửa lỗi NOT NULL khi schema cache cũ)
-  static const int _dbVersion = 4;
+  // v5: thêm is_active cho users (UC-42 vô hiệu hoá giữ lịch sử),
+  //   payment_amount cho coin_transactions (UC-48 snapshot giá gói)
+  static const int _dbVersion = 5;
 
   static const String tableUsers = 'users';
   static const String tableMangas = 'mangas';
@@ -40,7 +45,6 @@ class DatabaseHelper {
   static const String tableUserCheckInStats = 'user_check_in_stats';
   static const String tableDailyCheckInHistory = 'daily_check_in_history';
   static const String tableNotifications = 'notifications';
-
 
   static final DatabaseHelper instance = DatabaseHelper._internal();
   DatabaseHelper._internal();
@@ -63,6 +67,9 @@ class DatabaseHelper {
     final db = await openDatabase(
       path,
       version: _dbVersion,
+      onConfigure: (database) async {
+        await database.execute('PRAGMA foreign_keys = ON');
+      },
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -77,7 +84,11 @@ class DatabaseHelper {
   /// Dùng PRAGMA table_info để kiểm tra trước khi ALTER, tránh lỗi
   /// "duplicate column name" trên các bản cài đã có sẵn cột.
   Future<void> _addColumnIfMissing(
-      Database db, String table, String column, String definition) async {
+    Database db,
+    String table,
+    String column,
+    String definition,
+  ) async {
     final info = await db.rawQuery('PRAGMA table_info($table)');
     final exists = info.any((row) => row['name'] == column);
     if (!exists) {
@@ -88,6 +99,30 @@ class DatabaseHelper {
   Future<void> _ensureRequiredAccounts(Database db) async {
     // Đảm bảo cột avatar_url luôn tồn tại trong bảng users
     await _addColumnIfMissing(db, tableUsers, 'avatar_url', 'TEXT');
+    await _addColumnIfMissing(
+      db,
+      tableUsers,
+      'is_active',
+      'INTEGER NOT NULL DEFAULT 1',
+    );
+    await _addColumnIfMissing(
+      db,
+      tableCoinTransactions,
+      'payment_amount',
+      'INTEGER',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coin_tx_user_created ON $tableCoinTransactions(user_id, created_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_purchased_user ON $tableUserPurchasedChapters(user_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coin_tx_type_status_created ON $tableCoinTransactions(type, status, created_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_purchased_at ON $tableUserPurchasedChapters(purchased_at)',
+    );
 
     // Đảm bảo bảng user_purchased_chapters luôn tồn tại
     await db.execute('''
@@ -118,9 +153,24 @@ class DatabaseHelper {
     // Đảm bảo các bảng coin luôn tồn tại
     await _createCoinTables(db);
     await _addColumnIfMissing(db, tableCoinTransactions, 'user_id', 'TEXT');
-    await _addColumnIfMissing(db, tableCoinTransactions, 'coins_before', 'INTEGER DEFAULT 0');
-    await _addColumnIfMissing(db, tableCoinTransactions, 'coins_after', 'INTEGER DEFAULT 0');
-    await _addColumnIfMissing(db, tableCoinTransactions, 'payment_method', 'TEXT');
+    await _addColumnIfMissing(
+      db,
+      tableCoinTransactions,
+      'coins_before',
+      'INTEGER DEFAULT 0',
+    );
+    await _addColumnIfMissing(
+      db,
+      tableCoinTransactions,
+      'coins_after',
+      'INTEGER DEFAULT 0',
+    );
+    await _addColumnIfMissing(
+      db,
+      tableCoinTransactions,
+      'payment_method',
+      'TEXT',
+    );
     await _addColumnIfMissing(db, tableCoinTransactions, 'package_id', 'TEXT');
 
     // Đảm bảo bảng user_check_in_stats luôn tồn tại
@@ -170,11 +220,19 @@ class DatabaseHelper {
       password: '123456',
       role: UserRole.staff,
     );
-    await db.insert(
+    final existing = await db.query(
       tableUsers,
-      phatStaff.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      where: 'id = ?',
+      whereArgs: [phatStaff.id],
+      limit: 1,
     );
+    if (existing.isEmpty) {
+      await db.insert(
+        tableUsers,
+        phatStaff.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -191,7 +249,12 @@ class DatabaseHelper {
     }
     if (oldVersion < 4) {
       await _createGenreTable(db);
-      await _addColumnIfMissing(db, tableMangas, 'is_hidden', 'INTEGER NOT NULL DEFAULT 0');
+      await _addColumnIfMissing(
+        db,
+        tableMangas,
+        'is_hidden',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
     }
     // v3 -> v4: ALTER TABLE coin_transactions thêm wallet_id
     //   - Sửa lỗi NOT NULL constraint failed trên web cache
@@ -233,13 +296,35 @@ class DatabaseHelper {
             FROM $tableCoinTransactions
           ''');
           await db.execute('DROP TABLE $tableCoinTransactions');
-          await db.execute('ALTER TABLE coin_transactions_new RENAME TO $tableCoinTransactions');
+          await db.execute(
+            'ALTER TABLE coin_transactions_new RENAME TO $tableCoinTransactions',
+          );
         }
       } catch (e) {
         debugPrint('Migration v3->v4 warning: $e');
         // Nếu migration fail, xóa transactions cũ để tránh crash
         await db.delete(tableCoinTransactions);
       }
+    }
+    if (oldVersion < 5) {
+      await _addColumnIfMissing(
+        db,
+        tableUsers,
+        'is_active',
+        'INTEGER NOT NULL DEFAULT 1',
+      );
+      await _addColumnIfMissing(
+        db,
+        tableCoinTransactions,
+        'payment_amount',
+        'INTEGER',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_coin_tx_user_created ON $tableCoinTransactions(user_id, created_at)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_purchased_user ON $tableUserPurchasedChapters(user_id)',
+      );
     }
   }
 
@@ -252,7 +337,8 @@ class DatabaseHelper {
         display_name TEXT NOT NULL,
         password TEXT NOT NULL,
         role TEXT NOT NULL,
-        avatar_url TEXT
+        avatar_url TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1
       )
     ''');
 
@@ -413,11 +499,24 @@ class DatabaseHelper {
         description TEXT,
         payment_method TEXT,
         package_id TEXT,
+        payment_amount INTEGER,
         status TEXT NOT NULL,
         created_at TEXT NOT NULL,
         FOREIGN KEY (wallet_id) REFERENCES $tableWallets (id) ON DELETE CASCADE
       )
     ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coin_tx_user_created ON $tableCoinTransactions(user_id, created_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_purchased_user ON $tableUserPurchasedChapters(user_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coin_tx_type_status_created ON $tableCoinTransactions(type, status, created_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_purchased_at ON $tableUserPurchasedChapters(purchased_at)',
+    );
 
     // Bảng CoinPackages
     await db.execute('''
@@ -444,15 +543,22 @@ class DatabaseHelper {
       )
     ''');
     for (final name in const [
-      'Action', 'Adventure', 'Fantasy', 'Comedy', 'Romance', 'Supernatural', 'Sports'
+      'Action',
+      'Adventure',
+      'Fantasy',
+      'Comedy',
+      'Romance',
+      'Supernatural',
+      'Sports',
     ]) {
-      await db.insert(
-        tableGenres,
-        {'id': name.toLowerCase(), 'name': name, 'created_at': DateTime.now().toIso8601String()},
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      await db.insert(tableGenres, {
+        'id': name.toLowerCase(),
+        'name': name,
+        'created_at': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
   }
+
   Future<void> _seedInitialData(Database db) async {
     // Seed Users
     final seedUsers = [
@@ -693,24 +799,59 @@ class DatabaseHelper {
     final now = DateTime.now().toIso8601String();
     final packages = [
       {
-        'id': 'pkg_1', 'name': 'Starter Pack', 'coins': 100, 'price': 10000.0,
-        'bonus_coins': 0, 'is_active': 1, 'is_featured': 0, 'sort_order': 1, 'created_at': now
+        'id': 'pkg_1',
+        'name': 'Starter Pack',
+        'coins': 100,
+        'price': 10000.0,
+        'bonus_coins': 0,
+        'is_active': 1,
+        'is_featured': 0,
+        'sort_order': 1,
+        'created_at': now,
       },
       {
-        'id': 'pkg_2', 'name': 'Bronze Pack', 'coins': 500, 'price': 45000.0,
-        'bonus_coins': 50, 'is_active': 1, 'is_featured': 0, 'sort_order': 2, 'created_at': now
+        'id': 'pkg_2',
+        'name': 'Bronze Pack',
+        'coins': 500,
+        'price': 45000.0,
+        'bonus_coins': 50,
+        'is_active': 1,
+        'is_featured': 0,
+        'sort_order': 2,
+        'created_at': now,
       },
       {
-        'id': 'pkg_3', 'name': 'Silver Pack', 'coins': 1000, 'price': 85000.0,
-        'bonus_coins': 150, 'is_active': 1, 'is_featured': 0, 'sort_order': 3, 'created_at': now
+        'id': 'pkg_3',
+        'name': 'Silver Pack',
+        'coins': 1000,
+        'price': 85000.0,
+        'bonus_coins': 150,
+        'is_active': 1,
+        'is_featured': 0,
+        'sort_order': 3,
+        'created_at': now,
       },
       {
-        'id': 'pkg_4', 'name': 'Gold Pack', 'coins': 2000, 'price': 160000.0,
-        'bonus_coins': 400, 'is_active': 1, 'is_featured': 1, 'sort_order': 4, 'created_at': now
+        'id': 'pkg_4',
+        'name': 'Gold Pack',
+        'coins': 2000,
+        'price': 160000.0,
+        'bonus_coins': 400,
+        'is_active': 1,
+        'is_featured': 1,
+        'sort_order': 4,
+        'created_at': now,
       },
       {
-        'id': 'pkg_5', 'name': 'VIP Pack', 'coins': 5000, 'price': 380000.0,
-        'bonus_coins': 1250, 'is_active': 1, 'is_featured': 1, 'sort_order': 5, 'created_at': now
+        'id': 'pkg_5',
+        'name': 'VIP Pack',
+        'coins': 5000,
+        'price': 380000.0,
+        'bonus_coins': 1250,
+        'is_active': 1,
+        'is_featured': 1,
+        'sort_order': 5,
+        'created_at': now,
       },
     ];
 
@@ -748,8 +889,18 @@ class DatabaseHelper {
   Future<int> renameGenre(String id, String oldName, String newName) async {
     final db = await database;
     return db.transaction((txn) async {
-      final count = await txn.update(tableGenres, {'name': newName.trim()}, where: 'id = ?', whereArgs: [id]);
-      await txn.update(tableMangas, {'genre': newName.trim()}, where: 'genre = ?', whereArgs: [oldName]);
+      final count = await txn.update(
+        tableGenres,
+        {'name': newName.trim()},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      await txn.update(
+        tableMangas,
+        {'genre': newName.trim()},
+        where: 'genre = ?',
+        whereArgs: [oldName],
+      );
       return count;
     });
   }
@@ -757,10 +908,15 @@ class DatabaseHelper {
   Future<int> deleteGenre(String id, String name) async {
     final db = await database;
     final countRows = await db.rawQuery(
-      'SELECT COUNT(*) AS count FROM $tableMangas WHERE genre = ?', [name],
+      'SELECT COUNT(*) AS count FROM $tableMangas WHERE genre = ?',
+      [name],
     );
     final linked = (countRows.first['count'] as num?)?.toInt() ?? 0;
-    if (linked > 0) throw StateError('Thể loại đang được $linked truyện sử dụng. Hãy đổi thể loại truyện trước khi xóa.');
+    if (linked > 0) {
+      throw StateError(
+        'Thể loại đang được $linked truyện sử dụng. Hãy đổi thể loại truyện trước khi xóa.',
+      );
+    }
     return db.delete(tableGenres, where: 'id = ?', whereArgs: [id]);
   }
 
@@ -800,11 +956,7 @@ class DatabaseHelper {
 
   Future<int> deleteManga(String id) async {
     final db = await database;
-    return await db.delete(
-      tableMangas,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.delete(tableMangas, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<int> updateFavorite(String id, bool isFavorite) async {
@@ -819,7 +971,12 @@ class DatabaseHelper {
 
   Future<int> setMangaHidden(String id, bool hidden) async {
     final db = await database;
-    return db.update(tableMangas, {'is_hidden': hidden ? 1 : 0}, where: 'id = ?', whereArgs: [id]);
+    return db.update(
+      tableMangas,
+      {'is_hidden': hidden ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   /// Cập nhật tiến độ đọc chapter
@@ -905,9 +1062,7 @@ class DatabaseHelper {
     String? avatarUrl,
   }) async {
     final db = await database;
-    final Map<String, dynamic> values = {
-      'display_name': displayName,
-    };
+    final Map<String, dynamic> values = {'display_name': displayName};
     if (avatarUrl != null) {
       values['avatar_url'] = avatarUrl;
     }
@@ -930,14 +1085,31 @@ class DatabaseHelper {
     );
   }
 
-  /// Xóa người dùng (chỉ Admin) — cascade sẽ xóa wallet/transaction
-  Future<int> deleteUser(String id) async {
+  /// Vô hiệu hoá người dùng (UC-42): giữ ví, giao dịch, lịch sử mua.
+  Future<int> deactivateUser(String id) async {
     final db = await database;
-    return await db.delete(
+    return await db.update(
       tableUsers,
+      {'is_active': 0},
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  Future<int> reactivateUser(String id) async {
+    final db = await database;
+    return await db.update(
+      tableUsers,
+      {'is_active': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Xóa người dùng (chỉ Admin) — cascade sẽ xóa wallet/transaction
+  Future<int> deleteUser(String id) async {
+    final db = await database;
+    return await db.delete(tableUsers, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> resetToDefault() async {
@@ -1029,10 +1201,7 @@ class DatabaseHelper {
     final db = await database;
     return await db.update(
       tableChapters,
-      {
-        'is_deleted': 1,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
+      {'is_deleted': 1, 'updated_at': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -1040,14 +1209,14 @@ class DatabaseHelper {
 
   Future<int> deleteChapterPermanently(String id) async {
     final db = await database;
-    return await db.delete(
-      tableChapters,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.delete(tableChapters, where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<bool> isChapterNumberTaken(String mangaId, int chapterNumber, {String? excludeChapterId}) async {
+  Future<bool> isChapterNumberTaken(
+    String mangaId,
+    int chapterNumber, {
+    String? excludeChapterId,
+  }) async {
     final db = await database;
     final whereClause = excludeChapterId != null
         ? 'manga_id = ? AND chapter_number = ? AND id != ? AND is_deleted = 0'
@@ -1091,15 +1260,11 @@ class DatabaseHelper {
 
   Future<void> purchaseChapter(String userId, String chapterId) async {
     final db = await database;
-    await db.insert(
-      tableUserPurchasedChapters,
-      {
-        'user_id': userId,
-        'chapter_id': chapterId,
-        'purchased_at': DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert(tableUserPurchasedChapters, {
+      'user_id': userId,
+      'chapter_id': chapterId,
+      'purchased_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   // ===================== BOOKMARKS =====================
@@ -1136,7 +1301,12 @@ class DatabaseHelper {
       whereArgs: [bookmark.userId, bookmark.mangaId],
     );
   }
-  Future<void> toggleBookmark(String userId, String mangaId, String chapterId) async {
+
+  Future<void> toggleBookmark(
+    String userId,
+    String mangaId,
+    String chapterId,
+  ) async {
     final db = await database;
     final existing = await db.query(
       tableBookmarks,
@@ -1169,7 +1339,8 @@ class DatabaseHelper {
   /// Lấy toàn bộ bookmark của user (JOIN bảng mangas và chapters)
   Future<List<BookmarkDetail>> getUserBookmarks(String userId) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.rawQuery('''
+    final List<Map<String, dynamic>> maps = await db.rawQuery(
+      '''
       SELECT
         b.user_id, b.manga_id, b.chapter_id, b.created_at,
         m.title as manga_title, m.cover_url,
@@ -1179,7 +1350,9 @@ class DatabaseHelper {
       INNER JOIN $tableChapters c ON b.chapter_id = c.id
       WHERE b.user_id = ?
       ORDER BY b.created_at DESC
-    ''', [userId]);
+    ''',
+      [userId],
+    );
     return maps.map((map) => BookmarkDetail.fromMap(map)).toList();
   }
 
@@ -1204,8 +1377,30 @@ class DatabaseHelper {
     return await db.insert(
       tableWallets,
       wallet.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
+  }
+
+  /// Khôi phục ví + lịch sử đã chốt. Không cộng xu lần hai: ghi đè theo id.
+  Future<void> restoreWalletSnapshot({
+    required Wallet wallet,
+    required List<CoinTransaction> transactions,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.insert(
+        tableWallets,
+        wallet.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      for (final tx in transactions) {
+        await txn.insert(
+          tableCoinTransactions,
+          tx.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
   }
 
   Future<int> updateWalletBalance(
@@ -1230,13 +1425,19 @@ class DatabaseHelper {
 
   // ===================== CRUD COIN TRANSACTION =====================
 
-  Future<List<CoinTransaction>> getTransactionsByUserId(String userId) async {
+  Future<List<CoinTransaction>> getTransactionsByUserId(
+    String userId, {
+    int? limit,
+    int offset = 0,
+  }) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       tableCoinTransactions,
       where: 'user_id = ?',
       whereArgs: [userId],
       orderBy: 'created_at DESC',
+      limit: limit,
+      offset: offset,
     );
     return maps.map((map) => CoinTransaction.fromMap(map)).toList();
   }
@@ -1262,7 +1463,10 @@ class DatabaseHelper {
     return CoinTransaction.fromMap(maps.first);
   }
 
-  Future<int> updateTransactionStatus(String id, TransactionStatus status) async {
+  Future<int> updateTransactionStatus(
+    String id,
+    TransactionStatus status,
+  ) async {
     final db = await database;
     return await db.update(
       tableCoinTransactions,
@@ -1276,19 +1480,41 @@ class DatabaseHelper {
 
   /// Mirrors authenticated server receipts locally. The server ledger is the
   /// authority; duplicate snapshots never add coins a second time.
-  Future<CoinTransaction> cacheServerPayment(String userId, PaymentOrder order) async {
+  Future<CoinTransaction> cacheServerPayment(
+    String userId,
+    PaymentOrder order,
+  ) async {
     final db = await database;
     return db.transaction((txn) async {
       final now = DateTime.now();
-      final wallets = await txn.query(tableWallets, where: 'user_id = ?', whereArgs: [userId]);
+      final wallets = await txn.query(
+        tableWallets,
+        where: 'user_id = ?',
+        whereArgs: [userId],
+      );
       final wallet = wallets.isEmpty
-          ? Wallet(id: 'wallet_$userId', userId: userId, balance: 0, totalEarned: 0,
-              totalSpent: 0, createdAt: now, updatedAt: now)
+          ? Wallet(
+              id: 'wallet_$userId',
+              userId: userId,
+              balance: 0,
+              totalEarned: 0,
+              totalSpent: 0,
+              createdAt: now,
+              updatedAt: now,
+            )
           : Wallet.fromMap(wallets.first);
       if (wallets.isEmpty) await txn.insert(tableWallets, wallet.toMap());
-      final rows = await txn.query(tableCoinTransactions, where: 'id = ?', whereArgs: [order.id]);
-      final existing = rows.isEmpty ? null : CoinTransaction.fromMap(rows.first);
-      if (existing != null && existing.userId != userId) throw StateError('Payment belongs to another user.');
+      final rows = await txn.query(
+        tableCoinTransactions,
+        where: 'id = ?',
+        whereArgs: [order.id],
+      );
+      final existing = rows.isEmpty
+          ? null
+          : CoinTransaction.fromMap(rows.first);
+      if (existing != null && existing.userId != userId) {
+        throw StateError('Payment belongs to another user.');
+      }
       if (existing?.status == TransactionStatus.completed) return existing!;
       final status = switch (order.status) {
         'completed' => TransactionStatus.completed,
@@ -1297,28 +1523,54 @@ class DatabaseHelper {
         _ => TransactionStatus.pending,
       };
       final coins = order.package.totalCoins;
-      final balanceAfter = status == TransactionStatus.completed ? wallet.balance + coins : wallet.balance;
+      final balanceAfter = status == TransactionStatus.completed
+          ? wallet.balance + coins
+          : wallet.balance;
       if (status == TransactionStatus.completed) {
-        await txn.update(tableWallets, {
-          'balance': balanceAfter, 'total_earned': wallet.totalEarned + coins,
-          'updated_at': now.toIso8601String(),
-        }, where: 'user_id = ?', whereArgs: [userId]);
+        await txn.update(
+          tableWallets,
+          {
+            'balance': balanceAfter,
+            'total_earned': wallet.totalEarned + coins,
+            'updated_at': now.toIso8601String(),
+          },
+          where: 'user_id = ?',
+          whereArgs: [userId],
+        );
       }
-      final transaction = CoinTransaction(id: order.id, userId: userId, walletId: wallet.id,
-        type: TransactionType.deposit, amount: coins, coinsBefore: wallet.balance,
-        coinsAfter: balanceAfter, description: 'Nạp coins từ ${order.package.name} (${order.transferCode})',
-        paymentMethod: 'Chuyển khoản ngân hàng', packageId: order.package.id,
-        status: status, createdAt: order.paidAt ?? order.createdAt);
+      final transaction = CoinTransaction(
+        id: order.id,
+        userId: userId,
+        walletId: wallet.id,
+        type: TransactionType.deposit,
+        amount: coins,
+        coinsBefore: wallet.balance,
+        coinsAfter: balanceAfter,
+        description:
+            'Nạp coins từ ${order.package.name} (${order.transferCode})',
+        paymentMethod: 'Chuyển khoản ngân hàng',
+        packageId: order.package.id,
+        paymentAmount: order.amount,
+        status: status,
+        createdAt: order.paidAt ?? order.createdAt,
+      );
       if (existing == null) {
         await txn.insert(tableCoinTransactions, transaction.toMap());
       } else {
-        await txn.update(tableCoinTransactions, transaction.toMap(), where: 'id = ?', whereArgs: [order.id]);
+        await txn.update(
+          tableCoinTransactions,
+          transaction.toMap(),
+          where: 'id = ?',
+          whereArgs: [order.id],
+        );
       }
       return transaction;
     });
   }
 
-  Future<List<CoinPackage>> getAllCoinPackages({bool activeOnly = false}) async {
+  Future<List<CoinPackage>> getAllCoinPackages({
+    bool activeOnly = false,
+  }) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       tableCoinPackages,
@@ -1363,11 +1615,734 @@ class DatabaseHelper {
 
   Future<int> deleteCoinPackage(String id) async {
     final db = await database;
-    return await db.delete(
-      tableCoinPackages,
-      where: 'id = ?',
-      whereArgs: [id],
+    return await db.delete(tableCoinPackages, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<int> countTransactionsByPackage(String packageId) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) as c FROM $tableCoinTransactions WHERE package_id = ?',
+      [packageId],
     );
+    return (rows.first['c'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> countActiveAdmins() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      "SELECT COUNT(*) as c FROM $tableUsers WHERE role = 'admin' AND IFNULL(is_active, 1) = 1",
+    );
+    return (rows.first['c'] as num?)?.toInt() ?? 0;
+  }
+
+  /// UC-45 fallback: hoàn tất nạp xu local khi payment server tắt.
+  /// Idempotent — completed rồi thì trả về giao dịch cũ, không cộng xu lần 2.
+  Future<CoinTransaction> completeLocalDeposit(String transactionId) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        tableCoinTransactions,
+        where: 'id = ?',
+        whereArgs: [transactionId],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        throw StateError('Không tìm thấy giao dịch nạp.');
+      }
+      final existing = CoinTransaction.fromMap(rows.first);
+      if (existing.type != TransactionType.deposit) {
+        throw StateError('Giao dịch không phải nạp xu.');
+      }
+      if (existing.status == TransactionStatus.completed) return existing;
+      if (existing.status != TransactionStatus.pending) {
+        throw StateError('Giao dịch nạp không còn ở trạng thái chờ.');
+      }
+
+      final wallets = await txn.query(
+        tableWallets,
+        where: 'user_id = ?',
+        whereArgs: [existing.userId],
+        limit: 1,
+      );
+      if (wallets.isEmpty) {
+        throw StateError('Không tìm thấy ví của người dùng.');
+      }
+      final wallet = Wallet.fromMap(wallets.first);
+      final coins = existing.amount;
+      final now = DateTime.now();
+      final balanceAfter = wallet.balance + coins;
+      await txn.update(
+        tableWallets,
+        {
+          'balance': balanceAfter,
+          'total_earned': wallet.totalEarned + coins,
+          'updated_at': now.toIso8601String(),
+        },
+        where: 'user_id = ?',
+        whereArgs: [existing.userId],
+      );
+      final completed = existing.copyWith(
+        coinsBefore: wallet.balance,
+        coinsAfter: balanceAfter,
+        status: TransactionStatus.completed,
+        description: existing.description.replaceFirst(
+          'Chờ xác minh nạp',
+          'Nạp (xác nhận local)',
+        ),
+      );
+      await txn.update(
+        tableCoinTransactions,
+        completed.toMap(),
+        where: 'id = ? AND status = ?',
+        whereArgs: [transactionId, TransactionStatus.pending.name],
+      );
+      return completed;
+    });
+  }
+
+  /// Mở khóa chương trong một transaction: trừ xu + ghi quyền sở hữu.
+  Future<({bool success, String message, bool alreadyOwned})> unlockChapter({
+    required String userId,
+    required String chapterId,
+  }) async {
+    final db = await database;
+    try {
+      return await db.transaction((txn) async {
+        final chapterRows = await txn.query(
+          tableChapters,
+          where: 'id = ?',
+          whereArgs: [chapterId],
+          limit: 1,
+        );
+        if (chapterRows.isEmpty) {
+          return (
+            success: false,
+            message: 'Không tìm thấy chương.',
+            alreadyOwned: false,
+          );
+        }
+        final chapter = Chapter.fromMap(chapterRows.first);
+        if (chapter.isDeleted) {
+          return (
+            success: false,
+            message: 'Chương này đã bị xóa.',
+            alreadyOwned: false,
+          );
+        }
+
+        final owned = await txn.query(
+          tableUserPurchasedChapters,
+          where: 'user_id = ? AND chapter_id = ?',
+          whereArgs: [userId, chapterId],
+          limit: 1,
+        );
+        if (owned.isNotEmpty) {
+          return (
+            success: true,
+            message: 'Bạn đã sở hữu chương này.',
+            alreadyOwned: true,
+          );
+        }
+
+        final requiredCoins = chapter.price.round();
+        final now = DateTime.now();
+
+        if (!chapter.isLocked || requiredCoins <= 0) {
+          await txn.insert(tableUserPurchasedChapters, {
+            'user_id': userId,
+            'chapter_id': chapterId,
+            'purchased_at': now.toIso8601String(),
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          return (
+            success: true,
+            message: 'Chương miễn phí đã được mở.',
+            alreadyOwned: false,
+          );
+        }
+
+        final wallets = await txn.query(
+          tableWallets,
+          where: 'user_id = ?',
+          whereArgs: [userId],
+          limit: 1,
+        );
+        if (wallets.isEmpty) {
+          return (
+            success: false,
+            message: 'Không tìm thấy ví của người dùng.',
+            alreadyOwned: false,
+          );
+        }
+        final wallet = Wallet.fromMap(wallets.first);
+        if (wallet.balance < requiredCoins) {
+          return (
+            success: false,
+            message:
+                'Số dư không đủ. Cần $requiredCoins coins, hiện có ${wallet.balance} coins.',
+            alreadyOwned: false,
+          );
+        }
+
+        final txId = 'unlock_${userId}_$chapterId';
+        final existingTx = await txn.query(
+          tableCoinTransactions,
+          where: 'id = ?',
+          whereArgs: [txId],
+          limit: 1,
+        );
+        if (existingTx.isNotEmpty) {
+          await txn.insert(tableUserPurchasedChapters, {
+            'user_id': userId,
+            'chapter_id': chapterId,
+            'purchased_at': now.toIso8601String(),
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          return (
+            success: true,
+            message: 'Bạn đã sở hữu chương này.',
+            alreadyOwned: true,
+          );
+        }
+
+        final newBalance = wallet.balance - requiredCoins;
+        final updated = await txn.update(
+          tableWallets,
+          {
+            'balance': newBalance,
+            'total_spent': wallet.totalSpent + requiredCoins,
+            'updated_at': now.toIso8601String(),
+          },
+          where: 'user_id = ? AND balance >= ?',
+          whereArgs: [userId, requiredCoins],
+        );
+        if (updated == 0) {
+          return (
+            success: false,
+            message: 'Số dư không đủ để mở khóa chương.',
+            alreadyOwned: false,
+          );
+        }
+
+        await txn.insert(
+          tableCoinTransactions,
+          CoinTransaction(
+            id: txId,
+            userId: userId,
+            walletId: wallet.id,
+            type: TransactionType.purchase,
+            amount: -requiredCoins,
+            coinsBefore: wallet.balance,
+            coinsAfter: newBalance,
+            description:
+                'Mua Chương ${chapter.chapterNumber}: ${chapter.title}',
+            status: TransactionStatus.completed,
+            createdAt: now,
+          ).toMap(),
+        );
+        await txn.insert(tableUserPurchasedChapters, {
+          'user_id': userId,
+          'chapter_id': chapterId,
+          'purchased_at': now.toIso8601String(),
+        });
+        return (
+          success: true,
+          message:
+              'Đã mở khóa Chương ${chapter.chapterNumber}. Số dư: $newBalance',
+          alreadyOwned: false,
+        );
+      });
+    } catch (e) {
+      debugPrint('unlockChapter failed: $e');
+      return (
+        success: false,
+        message: 'Không thể mở khóa chương. Vui lòng thử lại.',
+        alreadyOwned: false,
+      );
+    }
+  }
+
+  Future<AdminDashboardStats> getAdminDashboardStats({
+    DateTime? since,
+    DateTime? until,
+  }) async {
+    final db = await database;
+    Future<int> count(String sql, [List<Object?> args = const []]) async {
+      final rows = await db.rawQuery(sql, args);
+      return (rows.first['c'] as num?)?.toInt() ?? 0;
+    }
+
+    final totalUsers = await count('SELECT COUNT(*) as c FROM $tableUsers');
+    final activeUsers = await count(
+      'SELECT COUNT(*) as c FROM $tableUsers WHERE IFNULL(is_active, 1) = 1',
+    );
+    final deactivatedUsers = totalUsers - activeUsers;
+    final adminCount = await count(
+      "SELECT COUNT(*) as c FROM $tableUsers WHERE role = 'admin' AND IFNULL(is_active, 1) = 1",
+    );
+    final staffCount = await count(
+      "SELECT COUNT(*) as c FROM $tableUsers WHERE role = 'staff' AND IFNULL(is_active, 1) = 1",
+    );
+    final readerCount = await count(
+      "SELECT COUNT(*) as c FROM $tableUsers WHERE role = 'reader' AND IFNULL(is_active, 1) = 1",
+    );
+
+    final totalMangas = await count('SELECT COUNT(*) as c FROM $tableMangas');
+    final hiddenMangas = await count(
+      'SELECT COUNT(*) as c FROM $tableMangas WHERE IFNULL(is_hidden, 0) = 1',
+    );
+    final totalChapters = await count(
+      'SELECT COUNT(*) as c FROM $tableChapters WHERE is_deleted = 0',
+    );
+    final lockedChapters = await count(
+      'SELECT COUNT(*) as c FROM $tableChapters WHERE is_deleted = 0 AND is_locked = 1 AND price > 0',
+    );
+    final totalGenres = await count('SELECT COUNT(*) as c FROM $tableGenres');
+
+    final walletRows = await db.rawQuery(
+      'SELECT IFNULL(SUM(balance), 0) as bal, IFNULL(SUM(total_earned), 0) as earned, IFNULL(SUM(total_spent), 0) as spent FROM $tableWallets',
+    );
+    final walletBalance = (walletRows.first['bal'] as num?)?.toInt() ?? 0;
+    final totalEarned = (walletRows.first['earned'] as num?)?.toInt() ?? 0;
+    final totalSpent = (walletRows.first['spent'] as num?)?.toInt() ?? 0;
+
+    final range = _txRange(since, until);
+    Future<Map<String, Object?>> depositAgg(String extra, List<Object> args) {
+      return db
+          .rawQuery(
+            "SELECT COUNT(*) as c, IFNULL(SUM(amount), 0) as coins, IFNULL(SUM(payment_amount), 0) as vnd "
+            "FROM $tableCoinTransactions WHERE type = 'deposit' AND status = 'completed' $extra",
+            args,
+          )
+          .then((rows) => rows.first);
+    }
+
+    final completedDeposits = await depositAgg(range.sql, range.args);
+    final failedDeposits = await count(
+      "SELECT COUNT(*) as c FROM $tableCoinTransactions WHERE type = 'deposit' AND status IN ('failed', 'cancelled') ${range.sql}",
+      range.args,
+    );
+    final pendingDeposits = await count(
+      "SELECT COUNT(*) as c FROM $tableCoinTransactions WHERE type = 'deposit' AND status = 'pending' ${range.sql}",
+      range.args,
+    );
+    final unlocks = await db.rawQuery(
+      "SELECT COUNT(*) as c, IFNULL(SUM(ABS(amount)), 0) as coins "
+      "FROM $tableCoinTransactions WHERE type = 'purchase' AND status = 'completed' AND id LIKE 'unlock_%' ${range.sql}",
+      range.args,
+    );
+
+    final depositCount = (completedDeposits['c'] as num?)?.toInt() ?? 0;
+    final coinsCredited = (completedDeposits['coins'] as num?)?.toInt() ?? 0;
+    final revenueVnd = (completedDeposits['vnd'] as num?)?.toInt() ?? 0;
+    final unlockCount = (unlocks.first['c'] as num?)?.toInt() ?? 0;
+    final coinsSpentOnUnlocks = (unlocks.first['coins'] as num?)?.toInt() ?? 0;
+
+    final prevRange = _previousRange(since, until);
+    var previousRevenueVnd = 0;
+    var previousFailedDeposits = 0;
+    if (prevRange != null) {
+      final prevCompleted = await depositAgg(prevRange.sql, prevRange.args);
+      previousRevenueVnd = (prevCompleted['vnd'] as num?)?.toInt() ?? 0;
+      previousFailedDeposits = await count(
+        "SELECT COUNT(*) as c FROM $tableCoinTransactions WHERE type = 'deposit' AND status IN ('failed', 'cancelled') ${prevRange.sql}",
+        prevRange.args,
+      );
+    }
+
+    final statusRows = await db.rawQuery(
+      'SELECT status, COUNT(*) as c FROM $tableCoinTransactions WHERE 1=1 ${range.sql} GROUP BY status',
+      range.args,
+    );
+    final transactionsByStatus = <String, int>{
+      for (final row in statusRows)
+        (row['status'] as String? ?? 'unknown'):
+            (row['c'] as num?)?.toInt() ?? 0,
+    };
+
+    final roleRows = await db.rawQuery(
+      'SELECT role, COUNT(*) as c FROM $tableUsers GROUP BY role',
+    );
+    final usersByRole = <String, int>{
+      for (final row in roleRows)
+        (row['role'] as String? ?? 'unknown'): (row['c'] as num?)?.toInt() ?? 0,
+    };
+
+    final genreRows = await db.rawQuery(
+      'SELECT genre, COUNT(*) as c FROM $tableMangas GROUP BY genre ORDER BY c DESC',
+    );
+    final mangasByGenre = <String, int>{
+      for (final row in genreRows)
+        (row['genre'] as String? ?? 'Khác'): (row['c'] as num?)?.toInt() ?? 0,
+    };
+
+    final revenueByDay = await _dailyPoints(
+      db,
+      "SELECT substr(created_at, 1, 10) as day, IFNULL(SUM(payment_amount), 0) as vnd, COUNT(*) as c "
+      "FROM $tableCoinTransactions WHERE type = 'deposit' AND status = 'completed' ${range.sql} "
+      "GROUP BY day ORDER BY day",
+      range.args,
+      since: since,
+      until: until,
+      vndKey: 'vnd',
+    );
+    final unlockSpendByDay = await _dailyPoints(
+      db,
+      "SELECT substr(created_at, 1, 10) as day, IFNULL(SUM(ABS(amount)), 0) as coins, COUNT(*) as c "
+      "FROM $tableCoinTransactions WHERE type = 'purchase' AND status = 'completed' AND id LIKE 'unlock_%' ${range.sql} "
+      "GROUP BY day ORDER BY day",
+      range.args,
+      since: since,
+      until: until,
+      coinsKey: 'coins',
+    );
+
+    final topRows = await db.rawQuery(
+      "SELECT c.id as chapter_id, c.title as chapter_title, c.chapter_number, c.manga_id, "
+      "IFNULL(m.title, '') as manga_title, COUNT(p.user_id) as unlocks, "
+      "IFNULL(SUM(ABS(t.amount)), 0) as coins "
+      "FROM $tableUserPurchasedChapters p "
+      "JOIN $tableChapters c ON c.id = p.chapter_id "
+      "LEFT JOIN $tableMangas m ON m.id = c.manga_id "
+      "LEFT JOIN $tableCoinTransactions t ON t.id = 'unlock_' || p.user_id || '_' || p.chapter_id "
+      "AND t.type = 'purchase' AND t.status = 'completed' "
+      "WHERE 1=1 ${_purchasedRange(since, until).sql} "
+      "GROUP BY c.id ORDER BY unlocks DESC LIMIT 8",
+      _purchasedRange(since, until).args,
+    );
+    final topUnlockedChapters = topRows
+        .map(
+          (row) => TopUnlockedChapter(
+            chapterId: row['chapter_id'] as String? ?? '',
+            chapterTitle: row['chapter_title'] as String? ?? '',
+            chapterNumber: (row['chapter_number'] as num?)?.toInt() ?? 0,
+            mangaId: row['manga_id'] as String? ?? '',
+            mangaTitle: row['manga_title'] as String? ?? '',
+            unlocks: (row['unlocks'] as num?)?.toInt() ?? 0,
+            coinsSpent: (row['coins'] as num?)?.toInt() ?? 0,
+          ),
+        )
+        .toList();
+
+    final staleCutoff = DateTime.now()
+        .subtract(const Duration(minutes: 60))
+        .toIso8601String();
+    final pendingStaleCount = await count(
+      "SELECT COUNT(*) as c FROM $tableCoinTransactions WHERE type = 'deposit' AND status = 'pending' AND created_at <= ?",
+      [staleCutoff],
+    );
+    final inactivePackageCount = await count(
+      'SELECT COUNT(*) as c FROM $tableCoinPackages WHERE IFNULL(is_active, 1) = 0',
+    );
+    final invalidPremiumCount = await count(
+      'SELECT COUNT(*) as c FROM $tableChapters WHERE is_deleted = 0 AND '
+      '((is_locked = 1 AND price <= 0) OR (is_locked = 0 AND price > 0))',
+    );
+
+    final alerts = <DashboardAlert>[
+      if (pendingStaleCount > 0)
+        DashboardAlert(
+          id: 'stale_pending',
+          title: 'Nạp đang chờ quá hạn',
+          detail:
+              '$pendingStaleCount giao dịch pending đã tồn tại trên 60 phút (cửa sổ thanh toán ~10 phút).',
+          target: 'stale_pending',
+        ),
+      if (since != null && failedDeposits > previousFailedDeposits)
+        DashboardAlert(
+          id: 'failed_up',
+          title: 'Nạp thất bại tăng so với kỳ trước',
+          detail:
+              'Kỳ này $failedDeposits, kỳ trước $previousFailedDeposits (failed + cancelled).',
+          target: 'failed',
+        ),
+      if (previousRevenueVnd > 0 && revenueVnd < previousRevenueVnd * 0.5)
+        DashboardAlert(
+          id: 'revenue_drop',
+          title: 'Doanh thu giảm mạnh',
+          detail:
+              'Doanh thu đã xác nhận $revenueVnd đ, kỳ trước $previousRevenueVnd đ (giảm trên 50%).',
+          target: 'deposits',
+        ),
+      if (inactivePackageCount > 0)
+        DashboardAlert(
+          id: 'inactive_packages',
+          title: 'Gói xu đang tắt',
+          detail: '$inactivePackageCount gói is_active = 0, không dùng để nạp.',
+          target: 'packages',
+        ),
+      if (invalidPremiumCount > 0)
+        DashboardAlert(
+          id: 'invalid_premium',
+          title: 'Chapter premium cấu hình lệch',
+          detail:
+              '$invalidPremiumCount chương: khóa nhưng giá ≤ 0, hoặc giá > 0 nhưng không khóa.',
+          target: 'invalid_chapters',
+        ),
+    ];
+
+    final recentMaps = await db.query(
+      tableCoinTransactions,
+      where: range.sql.isEmpty ? null : range.sql.replaceFirst(' AND ', ''),
+      whereArgs: range.args.isEmpty ? null : range.args,
+      orderBy: 'created_at DESC',
+      limit: 10,
+    );
+    final recent = recentMaps.map(CoinTransaction.fromMap).toList();
+
+    return AdminDashboardStats(
+      totalUsers: totalUsers,
+      activeUsers: activeUsers,
+      deactivatedUsers: deactivatedUsers,
+      adminCount: adminCount,
+      staffCount: staffCount,
+      readerCount: readerCount,
+      totalMangas: totalMangas,
+      hiddenMangas: hiddenMangas,
+      totalChapters: totalChapters,
+      lockedChapters: lockedChapters,
+      totalGenres: totalGenres,
+      walletBalance: walletBalance,
+      totalEarned: totalEarned,
+      totalSpent: totalSpent,
+      completedDeposits: depositCount,
+      failedDeposits: failedDeposits,
+      pendingDeposits: pendingDeposits,
+      coinsCredited: coinsCredited,
+      revenueVnd: revenueVnd,
+      unlockCount: unlockCount,
+      coinsSpentOnUnlocks: coinsSpentOnUnlocks,
+      recentTransactions: recent,
+      transactionsByStatus: transactionsByStatus,
+      usersByRole: usersByRole,
+      mangasByGenre: mangasByGenre,
+      revenueByDay: revenueByDay,
+      unlockSpendByDay: unlockSpendByDay,
+      topUnlockedChapters: topUnlockedChapters,
+      alerts: alerts,
+      pendingStaleCount: pendingStaleCount,
+      inactivePackageCount: inactivePackageCount,
+      invalidPremiumCount: invalidPremiumCount,
+      previousRevenueVnd: previousRevenueVnd,
+      previousFailedDeposits: previousFailedDeposits,
+    );
+  }
+
+  ({String sql, List<Object> args}) _txRange(DateTime? since, DateTime? until) {
+    final parts = <String>[];
+    final args = <Object>[];
+    if (since != null) {
+      parts.add('created_at >= ?');
+      args.add(since.toIso8601String());
+    }
+    if (until != null) {
+      parts.add('created_at < ?');
+      args.add(until.toIso8601String());
+    }
+    return (
+      sql: parts.isEmpty ? '' : ' AND ${parts.join(' AND ')}',
+      args: args,
+    );
+  }
+
+  ({String sql, List<Object> args}) _purchasedRange(
+    DateTime? since,
+    DateTime? until,
+  ) {
+    final parts = <String>[];
+    final args = <Object>[];
+    if (since != null) {
+      parts.add('p.purchased_at >= ?');
+      args.add(since.toIso8601String());
+    }
+    if (until != null) {
+      parts.add('p.purchased_at < ?');
+      args.add(until.toIso8601String());
+    }
+    return (
+      sql: parts.isEmpty ? '' : ' AND ${parts.join(' AND ')}',
+      args: args,
+    );
+  }
+
+  ({String sql, List<Object> args})? _previousRange(
+    DateTime? since,
+    DateTime? until,
+  ) {
+    if (since == null) return null;
+    final end = until ?? DateTime.now();
+    final duration = end.difference(since);
+    if (duration.inSeconds <= 0) return null;
+    return _txRange(since.subtract(duration), since);
+  }
+
+  Future<List<DailyPoint>> _dailyPoints(
+    dynamic db,
+    String sql,
+    List<Object> args, {
+    DateTime? since,
+    DateTime? until,
+    String vndKey = 'vnd',
+    String coinsKey = 'coins',
+  }) async {
+    final rows = await db.rawQuery(sql, args) as List<Map<String, Object?>>;
+    final byDay = <String, DailyPoint>{
+      for (final row in rows)
+        (row['day'] as String? ?? ''): DailyPoint(
+          day: row['day'] as String? ?? '',
+          revenueVnd: (row[vndKey] as num?)?.toInt() ?? 0,
+          coins: (row[coinsKey] as num?)?.toInt() ?? 0,
+          count: (row['c'] as num?)?.toInt() ?? 0,
+        ),
+    };
+    if (since == null) {
+      return byDay.values.toList()..sort((a, b) => a.day.compareTo(b.day));
+    }
+    final end = until ?? DateTime.now();
+    final points = <DailyPoint>[];
+    var cursor = DateTime(since.year, since.month, since.day);
+    final last = DateTime(end.year, end.month, end.day);
+    while (!cursor.isAfter(last)) {
+      final key =
+          '${cursor.year.toString().padLeft(4, '0')}-${cursor.month.toString().padLeft(2, '0')}-${cursor.day.toString().padLeft(2, '0')}';
+      points.add(byDay[key] ?? DailyPoint(day: key));
+      cursor = cursor.add(const Duration(days: 1));
+    }
+    return points;
+  }
+
+  Future<List<CoinTransaction>> queryAdminTransactions({
+    String? type,
+    List<String>? statuses,
+    DateTime? since,
+    DateTime? until,
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <Object>[];
+    if (type != null) {
+      where.add('type = ?');
+      args.add(type);
+    }
+    if (statuses != null && statuses.isNotEmpty) {
+      where.add('status IN (${List.filled(statuses.length, '?').join(',')})');
+      args.addAll(statuses);
+    }
+    if (since != null) {
+      where.add('created_at >= ?');
+      args.add(since.toIso8601String());
+    }
+    if (until != null) {
+      where.add('created_at < ?');
+      args.add(until.toIso8601String());
+    }
+    final maps = await db.query(
+      tableCoinTransactions,
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
+      orderBy: 'created_at DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map(CoinTransaction.fromMap).toList();
+  }
+
+  Future<List<AppUser>> queryAdminUsers({
+    bool? isActive,
+    String? role,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <Object>[];
+    if (isActive != null) {
+      where.add('IFNULL(is_active, 1) = ?');
+      args.add(isActive ? 1 : 0);
+    }
+    if (role != null) {
+      where.add('role = ?');
+      args.add(role);
+    }
+    final maps = await db.query(
+      tableUsers,
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
+      orderBy: 'username COLLATE NOCASE',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map(AppUser.fromMap).toList();
+  }
+
+  Future<List<Manga>> queryAdminMangas({
+    bool? hidden,
+    String? genre,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <Object>[];
+    if (hidden != null) {
+      where.add('IFNULL(is_hidden, 0) = ?');
+      args.add(hidden ? 1 : 0);
+    }
+    if (genre != null) {
+      where.add('genre = ?');
+      args.add(genre);
+    }
+    final maps = await db.query(
+      tableMangas,
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: args.isEmpty ? null : args,
+      orderBy: 'title COLLATE NOCASE',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map(Manga.fromMap).toList();
+  }
+
+  Future<List<Chapter>> queryAdminChapters({
+    bool invalidPremium = false,
+    bool lockedOnly = false,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final db = await database;
+    final where = <String>['is_deleted = 0'];
+    if (invalidPremium) {
+      where.add(
+        '((is_locked = 1 AND price <= 0) OR (is_locked = 0 AND price > 0))',
+      );
+    } else if (lockedOnly) {
+      where.add('is_locked = 1 AND price > 0');
+    }
+    final maps = await db.query(
+      tableChapters,
+      where: where.join(' AND '),
+      orderBy: 'manga_id, chapter_number',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map(Chapter.fromMap).toList();
+  }
+
+  Future<List<CoinPackage>> queryAdminPackages({
+    bool? active,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final db = await database;
+    final maps = await db.query(
+      tableCoinPackages,
+      where: active == null ? null : 'IFNULL(is_active, 1) = ?',
+      whereArgs: active == null ? null : [active ? 1 : 0],
+      orderBy: 'sort_order ASC, price ASC',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map(CoinPackage.fromMap).toList();
   }
   // ===================== CRUD DAILY CHECK-IN =====================
 
@@ -1407,7 +2382,10 @@ class DatabaseHelper {
   }
 
   /// Lấy danh sách lịch sử điểm danh của user
-  Future<List<DailyCheckInHistoryItem>> getCheckInHistory(String userId, {int limit = 14}) async {
+  Future<List<DailyCheckInHistoryItem>> getCheckInHistory(
+    String userId, {
+    int limit = 14,
+  }) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       tableDailyCheckInHistory,
@@ -1508,10 +2486,7 @@ class DatabaseHelper {
         whereArgs: [userId],
       );
     } else {
-      return await db.update(
-        tableNotifications,
-        {'is_read': 1},
-      );
+      return await db.update(tableNotifications, {'is_read': 1});
     }
   }
 

@@ -87,7 +87,7 @@ class Payments {
       createdAt: new Date(row.created_at).toISOString(), expiresAt: new Date(row.expires_at).toISOString(),
       paidAt: row.paid_at ? new Date(row.paid_at).toISOString() : null,
       verifiedAt: row.verified_at ? new Date(row.verified_at).toISOString() : null,
-      bankBin: '970403', accountNumber: this.accountNumber, accountName: 'NGO VIET TRINH',
+      bankBin: 'STB', accountNumber: this.accountNumber, accountName: 'NGO VIET TRINH',
     };
   }
 

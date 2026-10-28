@@ -2,3 +2,5 @@
 .tools/
 .env
 *.tmp.html
+bin/
+obj/

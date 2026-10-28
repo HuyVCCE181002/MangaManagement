@@ -60,9 +60,15 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
 
   Future<void> _loadChapters() async {
     final user = _auth.currentUser;
-    final chaptersFuture = ChapterService.instance.getChapters(widget.mangaId, forceRefresh: true);
+    final chaptersFuture = ChapterService.instance.getChapters(
+      widget.mangaId,
+      forceRefresh: true,
+    );
     final purchasedFuture = !user.isGuest
-        ? ChapterService.instance.getPurchasedChapterIds(user.id, forceRefresh: true)
+        ? ChapterService.instance.getPurchasedChapterIds(
+            user.id,
+            forceRefresh: true,
+          )
         : Future.value(<String>{});
 
     final results = await Future.wait([chaptersFuture, purchasedFuture]);
@@ -77,7 +83,10 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
   }
 
   /// Xử lý mua và mở khóa chương phía người dùng
-  Future<void> _handlePurchaseChapter(BuildContext context, Chapter chapter) async {
+  Future<void> _handlePurchaseChapter(
+    BuildContext context,
+    Chapter chapter,
+  ) async {
     final canBuy = await AuthGuard.checkPermission(
       context,
       featureName: 'Mua và mở khóa chương truyện',
@@ -94,7 +103,8 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
 
     final wallet = WalletService.instance;
     final int requiredCoins = chapter.price.toInt();
-    final bool hasEnoughCoins = requiredCoins <= 0 || wallet.balance >= requiredCoins;
+    final bool hasEnoughCoins =
+        requiredCoins <= 0 || wallet.balance >= requiredCoins;
     final theme = Theme.of(context);
 
     final confirmed = await showDialog<bool>(
@@ -104,9 +114,16 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: const [
-            Icon(Icons.shopping_bag_outlined, color: Color(0xFF6C5CE7), size: 26),
+            Icon(
+              Icons.shopping_bag_outlined,
+              color: Color(0xFF6C5CE7),
+              size: 26,
+            ),
             SizedBox(width: 10),
-            Text('Xác nhận mua chương', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+            Text(
+              'Xác nhận mua chương',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            ),
           ],
         ),
         content: Column(
@@ -115,7 +132,10 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
           children: [
             Text(
               'Bạn có muốn mở khóa Chương ${chapter.chapterNumber}: "${chapter.title}"?',
-              style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14),
+              style: TextStyle(
+                color: theme.colorScheme.onSurface,
+                fontSize: 14,
+              ),
             ),
             const SizedBox(height: 14),
             Container(
@@ -123,15 +143,25 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               decoration: BoxDecoration(
                 color: const Color(0xFFE17055).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFE17055).withValues(alpha: 0.3)),
+                border: Border.all(
+                  color: const Color(0xFFE17055).withValues(alpha: 0.3),
+                ),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.monetization_on_rounded, color: Color(0xFFE17055), size: 20),
+                  const Icon(
+                    Icons.monetization_on_rounded,
+                    color: Color(0xFFE17055),
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     'Giá: $requiredCoins xu',
-                    style: const TextStyle(color: Color(0xFFE17055), fontWeight: FontWeight.bold, fontSize: 14),
+                    style: const TextStyle(
+                      color: Color(0xFFE17055),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
                   ),
                 ],
               ),
@@ -156,21 +186,30 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                   Row(
                     children: [
                       Icon(
-                        hasEnoughCoins ? Icons.account_balance_wallet_rounded : Icons.warning_amber_rounded,
-                        color: hasEnoughCoins ? const Color(0xFF00B894) : const Color(0xFFD63031),
+                        hasEnoughCoins
+                            ? Icons.account_balance_wallet_rounded
+                            : Icons.warning_amber_rounded,
+                        color: hasEnoughCoins
+                            ? const Color(0xFF00B894)
+                            : const Color(0xFFD63031),
                         size: 20,
                       ),
                       const SizedBox(width: 8),
                       Text(
                         'Số dư hiện có:',
-                        style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
                   Text(
                     '${wallet.balance} xu',
                     style: TextStyle(
-                      color: hasEnoughCoins ? const Color(0xFF00B894) : const Color(0xFFD63031),
+                      color: hasEnoughCoins
+                          ? const Color(0xFF00B894)
+                          : const Color(0xFFD63031),
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                     ),
@@ -182,7 +221,11 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               const SizedBox(height: 8),
               Text(
                 'Số dư không đủ! Bạn còn thiếu ${requiredCoins - wallet.balance} xu để mở khóa chương này.',
-                style: const TextStyle(color: Color(0xFFD63031), fontSize: 12, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: Color(0xFFD63031),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ],
@@ -197,10 +240,15 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFFFB300),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Nạp Thêm Coins', style: TextStyle(fontWeight: FontWeight.bold)),
+              label: const Text(
+                'Nạp Thêm Coins',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               onPressed: () {
                 Navigator.pop(ctx, false);
                 Navigator.push(
@@ -214,39 +262,43 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF6C5CE7),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Xác nhận mua', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text(
+                'Xác nhận mua',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
         ],
       ),
     );
 
     if (confirmed == true && context.mounted) {
-      if (requiredCoins > 0) {
-        // Thực hiện trừ coins và kiểm tra số dư ở tầng WalletService
-        final spendResult = await WalletService.instance.spendCoins(
-          userId: user.id,
-          amount: requiredCoins,
-          description: 'Mua Chương ${chapter.chapterNumber}: ${chapter.title}',
-        );
+      final unlockResult = await WalletService.instance.unlockChapter(
+        userId: user.id,
+        chapterId: chapter.id,
+      );
 
-        if (!spendResult.success) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(spendResult.message),
-                backgroundColor: const Color(0xFFD63031),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          }
-          return;
+      if (!unlockResult.success) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(unlockResult.message),
+              backgroundColor: const Color(0xFFD63031),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
         }
+        return;
       }
 
-      await ChapterService.instance.purchaseChapter(user.id, chapter.id);
+      await ChapterService.instance.getPurchasedChapterIds(
+        user.id,
+        forceRefresh: true,
+      );
       await _loadChapters();
 
       // Bắn thông báo Mua chương thành công qua WebSocket
@@ -266,12 +318,16 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               children: [
                 const Icon(Icons.check_circle_rounded, color: Colors.white),
                 const SizedBox(width: 10),
-                Text('Đã mở khóa thành công Chương ${chapter.chapterNumber}! (Đã trừ $requiredCoins xu)'),
+                Text(
+                  'Đã mở khóa thành công Chương ${chapter.chapterNumber}! (Đã trừ $requiredCoins xu)',
+                ),
               ],
             ),
             backgroundColor: const Color(0xFF00B894),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }
@@ -279,7 +335,10 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
   }
 
   /// Xác nhận xóa chương (Delete Chapter) dành cho Staff
-  Future<void> _confirmDeleteChapter(BuildContext context, Chapter chapter) async {
+  Future<void> _confirmDeleteChapter(
+    BuildContext context,
+    Chapter chapter,
+  ) async {
     final theme = Theme.of(context);
 
     final confirmed = await showDialog<bool>(
@@ -289,9 +348,16 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: const [
-            Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 26),
+            Icon(
+              Icons.warning_amber_rounded,
+              color: Colors.redAccent,
+              size: 26,
+            ),
             SizedBox(width: 10),
-            Text('Xác nhận xóa chương', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+            Text(
+              'Xác nhận xóa chương',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            ),
           ],
         ),
         content: Text(
@@ -307,7 +373,9 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFD63031),
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
             icon: const Icon(Icons.delete_forever_rounded, size: 18),
             label: const Text('Xóa chương'),
@@ -319,7 +387,10 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
 
     if (confirmed == true && context.mounted) {
       try {
-        await ChapterService.instance.softDeleteChapter(widget.mangaId, chapter.id);
+        await ChapterService.instance.softDeleteChapter(
+          widget.mangaId,
+          chapter.id,
+        );
         await _loadChapters();
 
         // Bắn thông báo Staff xóa chương thành công
@@ -335,10 +406,14 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Đã xóa thành công Chương ${chapter.chapterNumber}!'),
+              content: Text(
+                'Đã xóa thành công Chương ${chapter.chapterNumber}!',
+              ),
               backgroundColor: const Color(0xFF00B894),
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
           );
         }
@@ -367,11 +442,16 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
         backgroundColor: theme.cardColor,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: isDark ? const Color(0xFF2E3440) : const Color(0xFFE2E5EE)),
+          side: BorderSide(
+            color: isDark ? const Color(0xFF2E3440) : const Color(0xFFE2E5EE),
+          ),
         ),
         title: Text(
           'Xác nhận xóa (Dành cho Admin)',
-          style: TextStyle(color: theme.colorScheme.onSurface, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: theme.colorScheme.onSurface,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: Text(
           'Bạn có chắc chắn muốn xóa bộ truyện "${manga.title}" khỏi hệ thống?',
@@ -386,7 +466,9 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.redAccent,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
             onPressed: () async {
               await _service.deleteManga(manga.id);
@@ -423,8 +505,12 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
           IconButton(
             tooltip: 'Yêu thích',
             icon: Icon(
-              manga.isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-              color: manga.isFavorite ? Colors.redAccent : theme.colorScheme.onSurface,
+              manga.isFavorite
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              color: manga.isFavorite
+                  ? Colors.redAccent
+                  : theme.colorScheme.onSurface,
             ),
             onPressed: () async {
               final canFav = await AuthGuard.checkPermission(
@@ -461,13 +547,23 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
           if (currentUser.role.canEditManga)
             IconButton(
               tooltip: manga.isHidden ? 'Hiện truyện' : 'Ẩn truyện',
-              icon: Icon(manga.isHidden ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+              icon: Icon(
+                manga.isHidden
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+              ),
               onPressed: () async {
                 await _service.setMangaHidden(manga.id, !manga.isHidden);
                 _loadManga();
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(manga.isHidden ? 'Đã hiện truyện.' : 'Đã ẩn truyện khỏi độc giả.')),
+                  SnackBar(
+                    content: Text(
+                      manga.isHidden
+                          ? 'Đã hiện truyện.'
+                          : 'Đã ẩn truyện khỏi độc giả.',
+                    ),
+                  ),
                 );
               },
             ),
@@ -476,7 +572,10 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
           if (currentUser.role.canDeleteManga)
             IconButton(
               tooltip: 'Xóa truyện (Chỉ Admin)',
-              icon: const Icon(Icons.delete_forever_rounded, color: Colors.redAccent),
+              icon: const Icon(
+                Icons.delete_forever_rounded,
+                color: Colors.redAccent,
+              ),
               onPressed: () => _showDeleteDialog(context, manga),
             ),
         ],
@@ -494,7 +593,9 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.15),
+                        color: Colors.black.withValues(
+                          alpha: isDark ? 0.4 : 0.15,
+                        ),
                         blurRadius: 16,
                         offset: const Offset(0, 8),
                       ),
@@ -510,8 +611,14 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                       errorBuilder: (context, error, stackTrace) => Container(
                         height: 260,
                         width: 180,
-                        color: isDark ? const Color(0xFF222634) : const Color(0xFFE0E0E0),
-                        child: const Icon(Icons.broken_image_rounded, size: 50, color: Colors.grey),
+                        color: isDark
+                            ? const Color(0xFF222634)
+                            : const Color(0xFFE0E0E0),
+                        child: const Icon(
+                          Icons.broken_image_rounded,
+                          size: 50,
+                          color: Colors.grey,
+                        ),
                       ),
                     ),
                   ),
@@ -535,7 +642,10 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               Center(
                 child: Text(
                   'Tác giả: ${manga.author}',
-                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 14),
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontSize: 14,
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -563,11 +673,15 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                   color: theme.cardColor,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: isDark ? const Color(0xFF2E3440) : const Color(0xFFE2E5EE),
+                    color: isDark
+                        ? const Color(0xFF2E3440)
+                        : const Color(0xFFE2E5EE),
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                      color: Colors.black.withValues(
+                        alpha: isDark ? 0.2 : 0.04,
+                      ),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -601,8 +715,12 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                       borderRadius: BorderRadius.circular(4),
                       child: LinearProgressIndicator(
                         value: manga.progressPercentage,
-                        backgroundColor: isDark ? const Color(0xFF222634) : const Color(0xFFE5E7EB),
-                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6C5CE7)),
+                        backgroundColor: isDark
+                            ? const Color(0xFF222634)
+                            : const Color(0xFFE5E7EB),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          Color(0xFF6C5CE7),
+                        ),
                         minHeight: 8,
                       ),
                     ),
@@ -612,7 +730,11 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                       children: [
                         Text(
                           'Chap ${manga.currentChapter} / ${manga.totalChapters}',
-                          style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 14, fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         Row(
                           children: [
@@ -621,33 +743,50 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                               onPressed: manga.currentChapter > 0
                                   ? () async {
                                       // Kiểm tra quyền lưu tiến độ đọc truyện (Guest bắt đăng nhập)
-                                      final canTrack = await AuthGuard.checkPermission(
-                                        context,
-                                        featureName: 'Lưu tiến độ đọc truyện',
-                                        minRole: UserRole.reader,
-                                      );
+                                      final canTrack =
+                                          await AuthGuard.checkPermission(
+                                            context,
+                                            featureName:
+                                                'Lưu tiến độ đọc truyện',
+                                            minRole: UserRole.reader,
+                                          );
                                       if (!canTrack) return;
 
-                                      await _service.updateChapter(manga.id, manga.currentChapter - 1);
+                                      await _service.updateChapter(
+                                        manga.id,
+                                        manga.currentChapter - 1,
+                                      );
                                       _loadManga();
                                     }
                                   : null,
                             ),
                             const SizedBox(width: 8),
                             IconButton.filled(
-                              style: IconButton.styleFrom(backgroundColor: const Color(0xFF6C5CE7)),
-                              icon: const Icon(Icons.add, size: 18, color: Colors.white),
-                              onPressed: manga.currentChapter < manga.totalChapters
+                              style: IconButton.styleFrom(
+                                backgroundColor: const Color(0xFF6C5CE7),
+                              ),
+                              icon: const Icon(
+                                Icons.add,
+                                size: 18,
+                                color: Colors.white,
+                              ),
+                              onPressed:
+                                  manga.currentChapter < manga.totalChapters
                                   ? () async {
                                       // Kiểm tra quyền lưu tiến độ đọc truyện (Guest bắt đăng nhập)
-                                      final canTrack = await AuthGuard.checkPermission(
-                                        context,
-                                        featureName: 'Lưu tiến độ đọc truyện',
-                                        minRole: UserRole.reader,
-                                      );
+                                      final canTrack =
+                                          await AuthGuard.checkPermission(
+                                            context,
+                                            featureName:
+                                                'Lưu tiến độ đọc truyện',
+                                            minRole: UserRole.reader,
+                                          );
                                       if (!canTrack) return;
 
-                                      await _service.updateChapter(manga.id, manga.currentChapter + 1);
+                                      await _service.updateChapter(
+                                        manga.id,
+                                        manga.currentChapter + 1,
+                                      );
                                       _loadManga();
                                     }
                                   : null,
@@ -664,14 +803,22 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               // Tóm tắt nội dung
               Text(
                 'Tóm tắt nội dung',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.onSurface,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
                 manga.description.isNotEmpty
                     ? manga.description
                     : 'Chưa có thông tin mô tả cho bộ truyện này.',
-                style: TextStyle(color: theme.colorScheme.onSurfaceVariant, height: 1.6, fontSize: 14),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.6,
+                  fontSize: 14,
+                ),
               ),
               const SizedBox(height: 28),
 
@@ -681,7 +828,11 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.menu_book_rounded, color: Color(0xFF6C5CE7), size: 22),
+                      const Icon(
+                        Icons.menu_book_rounded,
+                        color: Color(0xFF6C5CE7),
+                        size: 22,
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         'Danh Sách Chương (${_chapters.length})',
@@ -700,16 +851,29 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF6C5CE7),
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                             elevation: 1,
                           ),
                           icon: const Icon(Icons.add_rounded, size: 18),
-                          label: const Text('Thêm Chương', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          label: const Text(
+                            'Thêm Chương',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
                           onPressed: () async {
                             final maxChap = _chapters.isEmpty
                                 ? 0
-                                : _chapters.map((c) => c.chapterNumber).reduce((a, b) => a > b ? a : b);
+                                : _chapters
+                                      .map((c) => c.chapterNumber)
+                                      .reduce((a, b) => a > b ? a : b);
                             final updated = await Navigator.push<bool>(
                               context,
                               MaterialPageRoute(
@@ -724,21 +888,39 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                             }
                           },
                         ),
-                      if (currentUser.role.canEditChapter && !currentUser.role.canCreateChapter)
+                      if (currentUser.role.canEditChapter &&
+                          !currentUser.role.canCreateChapter)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF0984E3).withValues(alpha: 0.15),
+                            color: const Color(
+                              0xFF0984E3,
+                            ).withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFF0984E3).withValues(alpha: 0.4)),
+                            border: Border.all(
+                              color: const Color(
+                                0xFF0984E3,
+                              ).withValues(alpha: 0.4),
+                            ),
                           ),
                           child: Row(
                             children: const [
-                              Icon(Icons.edit_note_rounded, size: 16, color: Color(0xFF0984E3)),
+                              Icon(
+                                Icons.edit_note_rounded,
+                                size: 16,
+                                color: Color(0xFF0984E3),
+                              ),
                               SizedBox(width: 4),
                               Text(
                                 'Quyền Nhân Viên',
-                                style: TextStyle(color: Color(0xFF0984E3), fontWeight: FontWeight.bold, fontSize: 11),
+                                style: TextStyle(
+                                  color: Color(0xFF0984E3),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                ),
                               ),
                             ],
                           ),
@@ -764,13 +946,18 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                     color: theme.cardColor,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color: isDark ? const Color(0xFF2E3440) : const Color(0xFFE2E5EE),
+                      color: isDark
+                          ? const Color(0xFF2E3440)
+                          : const Color(0xFFE2E5EE),
                     ),
                   ),
                   child: Center(
                     child: Text(
                       'Chưa có chương nào được xuất bản cho truyện này.',
-                      style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 )
@@ -779,10 +966,17 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: _chapters.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 10),
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 10),
                   itemBuilder: (context, index) {
                     final chapter = _chapters[index];
-                    return _buildChapterItem(context, chapter, currentUser, theme, isDark);
+                    return _buildChapterItem(
+                      context,
+                      chapter,
+                      currentUser,
+                      theme,
+                      isDark,
+                    );
                   },
                 ),
               const SizedBox(height: 24),
@@ -802,8 +996,14 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
   ) {
     // Kiểm tra trạng thái mở khóa cho người dùng hiện tại
     final bool isPurchasedByMe = _purchasedChapterIds.contains(chapter.id);
-    final bool isStaffOrAdmin = currentUser.role == UserRole.staff || currentUser.role == UserRole.admin;
-    final bool isUnlocked = !chapter.isLocked || chapter.price <= 0 || isPurchasedByMe || isStaffOrAdmin;
+    final bool isStaffOrAdmin =
+        currentUser.role == UserRole.staff ||
+        currentUser.role == UserRole.admin;
+    final bool isUnlocked =
+        !chapter.isLocked ||
+        chapter.price <= 0 ||
+        isPurchasedByMe ||
+        isStaffOrAdmin;
 
     return Container(
       decoration: BoxDecoration(
@@ -846,7 +1046,10 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
               children: [
                 // Badge số thứ tự chap
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF6C5CE7).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
@@ -868,7 +1071,9 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        chapter.title.isNotEmpty ? chapter.title : 'Chương ${chapter.chapterNumber}',
+                        chapter.title.isNotEmpty
+                            ? chapter.title
+                            : 'Chương ${chapter.chapterNumber}',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
@@ -884,23 +1089,39 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.photo_library_outlined, size: 14, color: theme.colorScheme.onSurfaceVariant),
+                              Icon(
+                                Icons.photo_library_outlined,
+                                size: 14,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                               const SizedBox(width: 4),
                               Text(
                                 '${chapter.contents.length} trang ảnh',
-                                style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
                               ),
                             ],
                           ),
                           // Badge Giá nếu có phí
                           if (chapter.price > 0)
-                            _buildBadge('${chapter.price.toInt()} xu', const Color(0xFFE17055)),
+                            _buildBadge(
+                              '${chapter.price.toInt()} xu',
+                              const Color(0xFFE17055),
+                            ),
                           // Badge trạng thái khóa / mở khóa theo User
                           if (chapter.isLocked) ...[
                             if (isPurchasedByMe)
-                              _buildBadge('Đã mua (Mở khóa)', const Color(0xFF00B894))
+                              _buildBadge(
+                                'Đã mua (Mở khóa)',
+                                const Color(0xFF00B894),
+                              )
                             else if (isStaffOrAdmin)
-                              _buildBadge('Khóa (${currentUser.role.label})', Colors.deepOrange)
+                              _buildBadge(
+                                'Khóa (${currentUser.role.label})',
+                                Colors.deepOrange,
+                              )
                             else
                               _buildBadge('Đang khóa', Colors.deepOrange),
                           ] else
@@ -919,14 +1140,24 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFE17055),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                         elevation: 0,
                       ),
                       icon: const Icon(Icons.shopping_cart_outlined, size: 15),
                       label: Text(
-                        chapter.price > 0 ? 'Mua ${chapter.price.toInt()} xu' : 'Mở khóa',
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        chapter.price > 0
+                            ? 'Mua ${chapter.price.toInt()} xu'
+                            : 'Mở khóa',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       onPressed: () => _handlePurchaseChapter(context, chapter),
                     ),
@@ -938,7 +1169,11 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                     padding: const EdgeInsets.only(left: 4),
                     child: IconButton(
                       tooltip: 'Chỉnh sửa chương (Staff)',
-                      icon: const Icon(Icons.edit_note_rounded, color: Color(0xFF0984E3), size: 22),
+                      icon: const Icon(
+                        Icons.edit_note_rounded,
+                        color: Color(0xFF0984E3),
+                        size: 22,
+                      ),
                       onPressed: () async {
                         final updated = await Navigator.push<bool>(
                           context,
@@ -962,7 +1197,11 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
                     padding: const EdgeInsets.only(left: 2),
                     child: IconButton(
                       tooltip: 'Xóa chương (Staff)',
-                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        color: Colors.redAccent,
+                        size: 20,
+                      ),
                       onPressed: () => _confirmDeleteChapter(context, chapter),
                     ),
                   ),
@@ -984,7 +1223,11 @@ class _MangaDetailScreenState extends State<MangaDetailScreen> {
       ),
       child: Text(
         text,
-        style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11),
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.bold,
+          fontSize: 11,
+        ),
       ),
     );
   }

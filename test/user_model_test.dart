@@ -88,6 +88,13 @@ void main() {
         expect(UserRole.staff.canManageUsers, isFalse);
         expect(UserRole.admin.canManageUsers, isTrue);
       });
+
+      test('canViewAdminDashboard - chỉ admin', () {
+        expect(UserRole.guest.canViewAdminDashboard, isFalse);
+        expect(UserRole.reader.canViewAdminDashboard, isFalse);
+        expect(UserRole.staff.canViewAdminDashboard, isFalse);
+        expect(UserRole.admin.canViewAdminDashboard, isTrue);
+      });
     });
 
     test('toMap() lưu role dạng tên enum (snake_case string)', () {
@@ -168,7 +175,10 @@ void main() {
         password: 'pw',
         role: UserRole.reader,
       );
-      final updated = user.copyWith(role: UserRole.staff, displayName: 'New Name');
+      final updated = user.copyWith(
+        role: UserRole.staff,
+        displayName: 'New Name',
+      );
       expect(updated.role, UserRole.staff);
       expect(updated.displayName, 'New Name');
       expect(updated.username, 'old'); // giữ nguyên

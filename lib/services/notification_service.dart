@@ -27,6 +27,9 @@ class NotificationService extends ChangeNotifier {
   StreamSubscription? _webBusSubscription;
   Timer? _reconnectTimer;
   Timer? _pingTimer;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 8;
+  String? _lastError;
 
   bool _isConnected = false;
   bool _isConnecting = false;
@@ -41,18 +44,23 @@ class NotificationService extends ChangeNotifier {
 
   bool get isConnected => _isConnected;
   bool get isConnecting => _isConnecting;
+  String? get lastError => _lastError;
   int get unreadCount => _unreadCount;
   List<NotificationItem> get notifications => List.unmodifiable(_notifications);
 
   /// Khởi tạo và kết nối WebSocket
   Future<void> init() async {
     await loadNotifications();
-    connect();
-
-    // Hỗ trợ môi trường Web nếu WebSocket local không kết nối được
+    // Web không có HttpServer trong app: dùng web bus trong bộ nhớ,
+    // không mở socket tới 127.0.0.1 để tránh ERR_CONNECTION_REFUSED.
     if (kIsWeb) {
+      _isConnected = true;
+      _isConnecting = false;
       _listenToWebBus();
+      notifyListeners();
+      return;
     }
+    connect();
   }
 
   void _onAuthChanged() {
@@ -101,6 +109,13 @@ class NotificationService extends ChangeNotifier {
   /// Kết nối tới WebSocket server
   void connect({String? wsUrl}) {
     if (_isConnected || _isConnecting) return;
+    if (kIsWeb) {
+      _isConnected = true;
+      _isConnecting = false;
+      _listenToWebBus();
+      notifyListeners();
+      return;
+    }
     _isConnecting = true;
     _reconnectTimer?.cancel();
 
@@ -112,12 +127,15 @@ class NotificationService extends ChangeNotifier {
       _channel!.ready.then((_) {
         _isConnected = true;
         _isConnecting = false;
+        _reconnectAttempts = 0;
+        _lastError = null;
         _startPingTimer();
         _sendRegister();
         notifyListeners();
         debugPrint('[NotificationService] WebSocket connected successfully!');
       }).catchError((error) {
         debugPrint('[NotificationService] WebSocket ready error: $error');
+        _lastError = error.toString();
         _handleDisconnect();
       });
 
@@ -131,6 +149,7 @@ class NotificationService extends ChangeNotifier {
         },
         onError: (error) {
           debugPrint('[NotificationService] WebSocket error: $error');
+          _lastError = error.toString();
           _handleDisconnect();
         },
         cancelOnError: false,
@@ -148,6 +167,7 @@ class NotificationService extends ChangeNotifier {
     _channel = null;
     _isConnected = false;
     _isConnecting = false;
+    _reconnectAttempts = 0;
     notifyListeners();
   }
 
@@ -182,9 +202,19 @@ class NotificationService extends ChangeNotifier {
     _channel = null;
     notifyListeners();
 
-    // Tự động kết nối lại sau 4 giây
+    // Reconnect có giới hạn + backoff để tránh vòng lặp vô hạn khi
+    // server WebSocket chưa được khởi động (vd. ws://...:8085 refused).
+    if (_reconnectAttempts >= _maxReconnectAttempts) {
+      debugPrint(
+        '[NotificationService] Reconnect stopped after $_maxReconnectAttempts attempts: ${_lastError ?? 'server unavailable'}. '
+        'REST/SQLite vẫn hoạt động bình thường.',
+      );
+      return;
+    }
+    _reconnectAttempts++;
+    final delaySeconds = (1 << _reconnectAttempts).clamp(2, 30);
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 4), () {
+    _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
       connect();
     });
   }

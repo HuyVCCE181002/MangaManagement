@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../models/coin_package.dart';
+import 'auth_service.dart';
 import 'database_helper.dart';
 
 /// Service quản lý gói coins (CRUD cho Admin)
@@ -13,7 +14,9 @@ class CoinPackageService extends ChangeNotifier {
 
   /// Load tất cả gói coins (Admin)
   Future<void> loadAll() async {
-    _packages = await DatabaseHelper.instance.getAllCoinPackages(activeOnly: false);
+    _packages = await DatabaseHelper.instance.getAllCoinPackages(
+      activeOnly: false,
+    );
     notifyListeners();
   }
 
@@ -21,6 +24,9 @@ class CoinPackageService extends ChangeNotifier {
   Future<List<CoinPackage>> getActivePackages() async {
     return await DatabaseHelper.instance.getAllCoinPackages(activeOnly: true);
   }
+
+  bool get _isAdmin =>
+      AuthService.instance.currentUser.role.canManageCoinPackages;
 
   /// Thêm gói coins mới
   Future<({bool success, String message, CoinPackage? package})> createPackage({
@@ -34,16 +40,39 @@ class CoinPackageService extends ChangeNotifier {
   }) async {
     // Validation
     if (name.trim().isEmpty) {
-      return (success: false, message: 'Tên gói không được để trống.', package: null);
+      return (
+        success: false,
+        message: 'Tên gói không được để trống.',
+        package: null,
+      );
     }
     if (coins <= 0) {
-      return (success: false, message: 'Số coins phải lớn hơn 0.', package: null);
+      return (
+        success: false,
+        message: 'Số coins phải lớn hơn 0.',
+        package: null,
+      );
     }
     if (price < 0) {
-      return (success: false, message: 'Giá tiền không được âm.', package: null);
+      return (
+        success: false,
+        message: 'Giá tiền không được âm.',
+        package: null,
+      );
     }
     if (bonusCoins < 0) {
-      return (success: false, message: 'Bonus coins không được âm.', package: null);
+      return (
+        success: false,
+        message: 'Bonus coins không được âm.',
+        package: null,
+      );
+    }
+    if (!_isAdmin) {
+      return (
+        success: false,
+        message: 'Chỉ quản trị viên mới được tạo gói coins.',
+        package: null,
+      );
     }
 
     final newPkg = CoinPackage(
@@ -60,11 +89,23 @@ class CoinPackageService extends ChangeNotifier {
 
     await DatabaseHelper.instance.insertCoinPackage(newPkg);
     await loadAll();
-    return (success: true, message: 'Đã tạo gói coins mới thành công!', package: newPkg);
+    return (
+      success: true,
+      message: 'Đã tạo gói coins mới thành công!',
+      package: newPkg,
+    );
   }
 
   /// Cập nhật gói coins
-  Future<({bool success, String message})> updatePackage(CoinPackage pkg) async {
+  Future<({bool success, String message})> updatePackage(
+    CoinPackage pkg,
+  ) async {
+    if (!_isAdmin) {
+      return (
+        success: false,
+        message: 'Chỉ quản trị viên mới được cập nhật gói coins.',
+      );
+    }
     if (pkg.name.trim().isEmpty) {
       return (success: false, message: 'Tên gói không được để trống.');
     }
@@ -82,6 +123,12 @@ class CoinPackageService extends ChangeNotifier {
 
   /// Toggle trạng thái active
   Future<({bool success, String message})> toggleActive(String id) async {
+    if (!_isAdmin) {
+      return (
+        success: false,
+        message: 'Chỉ quản trị viên mới được đổi trạng thái gói coins.',
+      );
+    }
     final pkg = await DatabaseHelper.instance.getCoinPackageById(id);
     if (pkg == null) {
       return (success: false, message: 'Không tìm thấy gói coins.');
@@ -91,12 +138,20 @@ class CoinPackageService extends ChangeNotifier {
     await loadAll();
     return (
       success: true,
-      message: updated.isActive ? 'Đã kích hoạt gói "${updated.name}".' : 'Đã tạm dừng gói "${updated.name}".',
+      message: updated.isActive
+          ? 'Đã kích hoạt gói "${updated.name}".'
+          : 'Đã tạm dừng gói "${updated.name}".',
     );
   }
 
   /// Toggle featured
   Future<({bool success, String message})> toggleFeatured(String id) async {
+    if (!_isAdmin) {
+      return (
+        success: false,
+        message: 'Chỉ quản trị viên mới được đánh dấu gói nổi bật.',
+      );
+    }
     final pkg = await DatabaseHelper.instance.getCoinPackageById(id);
     if (pkg == null) {
       return (success: false, message: 'Không tìm thấy gói coins.');
@@ -106,15 +161,37 @@ class CoinPackageService extends ChangeNotifier {
     await loadAll();
     return (
       success: true,
-      message: updated.isFeatured ? 'Đã đánh dấu nổi bật.' : 'Đã bỏ đánh dấu nổi bật.',
+      message: updated.isFeatured
+          ? 'Đã đánh dấu nổi bật.'
+          : 'Đã bỏ đánh dấu nổi bật.',
     );
   }
 
-  /// Xóa gói coins
+  /// Xóa gói coins (UC-48): nếu gói đã có giao dịch lịch sử thì chỉ
+  /// tạm dừng thay vì xóa hẳn, để các giao dịch cũ vẫn giữ snapshot.
   Future<({bool success, String message})> deletePackage(String id) async {
+    if (!_isAdmin) {
+      return (
+        success: false,
+        message: 'Chỉ quản trị viên mới được gỡ gói coins.',
+      );
+    }
     final pkg = await DatabaseHelper.instance.getCoinPackageById(id);
     if (pkg == null) {
       return (success: false, message: 'Không tìm thấy gói coins.');
+    }
+    final usedCount = await DatabaseHelper.instance.countTransactionsByPackage(
+      id,
+    );
+    if (usedCount > 0) {
+      final updated = pkg.copyWith(isActive: false);
+      await DatabaseHelper.instance.updateCoinPackage(updated);
+      await loadAll();
+      return (
+        success: true,
+        message:
+            'Gói "${pkg.name}" đã có $usedCount giao dịch nên chỉ được tạm dừng, lịch sử được giữ nguyên.',
+      );
     }
     await DatabaseHelper.instance.deleteCoinPackage(id);
     await loadAll();

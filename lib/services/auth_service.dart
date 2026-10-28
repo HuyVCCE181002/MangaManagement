@@ -31,7 +31,9 @@ class AuthService extends ChangeNotifier {
     final savedUserId = prefs.getString(_currentSessionKey);
     if (savedUserId != null && savedUserId.isNotEmpty) {
       try {
-        _currentUser = _allUsers.firstWhere((u) => u.id == savedUserId);
+        _currentUser = _allUsers.firstWhere(
+          (u) => u.id == savedUserId && u.isActive,
+        );
       } catch (_) {
         _currentUser = AppUser.guest;
       }
@@ -39,29 +41,57 @@ class AuthService extends ChangeNotifier {
       _currentUser = AppUser.guest;
     }
 
+    if (!_currentUser.isGuest) {
+      await WalletService.instance.loadWallet(_currentUser.id);
+      try {
+        await WalletService.instance.recoverServerPayments(_currentUser);
+      } catch (_) {}
+      await DailyCheckInService.instance.loadForUser(_currentUser.id);
+    }
+
     notifyListeners();
   }
 
   /// Đăng nhập
-  Future<({bool success, String message})> login(String username, String password) async {
+  Future<({bool success, String message})> login(
+    String username,
+    String password,
+  ) async {
     final cleanUsername = username.trim().toLowerCase();
     final cleanPassword = password.trim();
 
     if (cleanUsername.isEmpty || cleanPassword.isEmpty) {
-      return (success: false, message: 'Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu.');
+      return (
+        success: false,
+        message: 'Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu.',
+      );
     }
 
     final user = _allUsers.cast<AppUser?>().firstWhere(
-          (u) => u?.username.toLowerCase() == cleanUsername,
-          orElse: () => null,
-        );
+      (u) => u?.username.toLowerCase() == cleanUsername,
+      orElse: () => null,
+    );
 
     if (user == null) {
-      return (success: false, message: 'Tài khoản không tồn tại. Vui lòng đăng ký!');
+      return (
+        success: false,
+        message: 'Tài khoản không tồn tại. Vui lòng đăng ký!',
+      );
+    }
+
+    if (!user.isActive) {
+      return (
+        success: false,
+        message:
+            'Tài khoản này đã bị vô hiệu hoá. Vui lòng liên hệ quản trị viên.',
+      );
     }
 
     if (user.password != cleanPassword) {
-      return (success: false, message: 'Mật khẩu không chính xác. Vui lòng thử lại!');
+      return (
+        success: false,
+        message: 'Mật khẩu không chính xác. Vui lòng thử lại!',
+      );
     }
 
     _currentUser = user;
@@ -81,7 +111,10 @@ class AuthService extends ChangeNotifier {
 
     notifyListeners();
 
-    return (success: true, message: 'Đăng nhập thành công với vai trò ${user.role.label}!');
+    return (
+      success: true,
+      message: 'Đăng nhập thành công với vai trò ${user.role.label}!',
+    );
   }
 
   /// Đăng ký tài khoản mới (Mặc định vai trò là Reader)
@@ -94,21 +127,34 @@ class AuthService extends ChangeNotifier {
     final cleanDisplayName = displayName.trim();
     final cleanPassword = password.trim();
 
-    if (cleanUsername.isEmpty || cleanDisplayName.isEmpty || cleanPassword.isEmpty) {
-      return (success: false, message: 'Vui lòng điền đầy đủ các thông tin bắt buộc.');
+    if (cleanUsername.isEmpty ||
+        cleanDisplayName.isEmpty ||
+        cleanPassword.isEmpty) {
+      return (
+        success: false,
+        message: 'Vui lòng điền đầy đủ các thông tin bắt buộc.',
+      );
     }
 
     if (cleanUsername.length < 3) {
-      return (success: false, message: 'Tên đăng nhập phải có ít nhất 3 ký tự.');
+      return (
+        success: false,
+        message: 'Tên đăng nhập phải có ít nhất 3 ký tự.',
+      );
     }
 
     if (cleanPassword.length < 4) {
       return (success: false, message: 'Mật khẩu phải có ít nhất 4 ký tự.');
     }
 
-    final exists = _allUsers.any((u) => u.username.toLowerCase() == cleanUsername);
+    final exists = _allUsers.any(
+      (u) => u.username.toLowerCase() == cleanUsername,
+    );
     if (exists) {
-      return (success: false, message: 'Tên đăng nhập đã được sử dụng. Vui lòng chọn tên khác!');
+      return (
+        success: false,
+        message: 'Tên đăng nhập đã được sử dụng. Vui lòng chọn tên khác!',
+      );
     }
 
     final newUser = AppUser(
@@ -134,7 +180,10 @@ class AuthService extends ChangeNotifier {
 
     notifyListeners();
 
-    return (success: true, message: 'Đăng ký thành công! Chào mừng độc giả ${newUser.displayName}!');
+    return (
+      success: true,
+      message: 'Đăng ký thành công! Chào mừng độc giả ${newUser.displayName}!',
+    );
   }
 
   /// Đăng xuất khỏi hệ thống -> trở về Guest
@@ -180,43 +229,108 @@ class AuthService extends ChangeNotifier {
     return true;
   }
 
-  /// Xóa user (Admin) - Level Complex:
+  /// Xóa / vô hiệu hoá user (Admin, UC-42):
   /// - Không xóa chính mình
-  /// - Không xóa Admin cuối cùng (phải còn ít nhất 1 Admin trong hệ thống)
-  /// - Xóa cascade: ví, giao dịch của user
-  /// - Trả về thông báo chi tiết
-  Future<({bool success, String message})> deleteUser(String userId) async {
-    // 1. Không cho xóa chính mình
+  /// - Giữ lại Admin cuối cùng (chỉ xét tài khoản đang hoạt động)
+  /// - Mặc định vô hiệu hoá để giữ ví, giao dịch, lịch sử mua
+  ///   theo tiêu chí nghiệm thu; chỉ xóa hẳn khi không còn dữ liệu liên quan.
+  Future<({bool success, String message, bool deactivated})> deleteUser(
+    String userId, {
+    bool hardDelete = false,
+  }) async {
+    if (!_currentUser.role.canManageUsers) {
+      return (
+        success: false,
+        message: 'Chỉ quản trị viên mới được vô hiệu hoá tài khoản.',
+        deactivated: false,
+      );
+    }
     if (_currentUser.id == userId) {
-      return (success: false, message: 'Không thể tự xóa tài khoản đang đăng nhập!');
+      return (
+        success: false,
+        message: 'Không thể tự xóa tài khoản đang đăng nhập!',
+        deactivated: false,
+      );
     }
 
     final userIndex = _allUsers.indexWhere((u) => u.id == userId);
     if (userIndex == -1) {
-      return (success: false, message: 'Không tìm thấy tài khoản cần xóa.');
+      return (
+        success: false,
+        message: 'Không tìm thấy tài khoản cần xóa.',
+        deactivated: false,
+      );
     }
     final targetUser = _allUsers[userIndex];
 
-    // 2. Bảo vệ Admin cuối cùng: nếu user bị xóa là Admin, phải còn ít nhất 1 Admin khác
     if (targetUser.role == UserRole.admin) {
-      final adminCount = _allUsers.where((u) => u.role == UserRole.admin).length;
-      if (adminCount <= 1) {
+      final adminCount = _allUsers
+          .where((u) => u.role == UserRole.admin && u.isActive)
+          .length;
+      if (targetUser.isActive && adminCount <= 1) {
         return (
           success: false,
-          message: 'Không thể xóa Admin cuối cùng của hệ thống! Hãy nâng cấp một tài khoản khác lên Admin trước.',
+          message:
+              'Không thể xóa Admin cuối cùng của hệ thống! Hãy nâng cấp một tài khoản khác lên Admin trước.',
+          deactivated: false,
         );
       }
     }
 
-    // 3. Xóa cascade: ví & giao dịch của user (DatabaseHelper chưa có cascade riêng
-    //    cho wallet/transaction, nhưng FOREIGN KEY ON DELETE CASCADE sẽ tự xóa khi user bị xóa)
+    final hasHistory = await _hasUserFinancialData(userId);
+    if (!hardDelete || hasHistory) {
+      await DatabaseHelper.instance.deactivateUser(userId);
+      _allUsers[userIndex] = targetUser.copyWith(isActive: false);
+      notifyListeners();
+      return (
+        success: true,
+        message:
+            'Đã vô hiệu hoá tài khoản @${targetUser.username}. Ví, giao dịch và lịch sử mua được giữ nguyên.',
+        deactivated: true,
+      );
+    }
+
     await DatabaseHelper.instance.deleteUser(userId);
     _allUsers.removeAt(userIndex);
     notifyListeners();
 
     return (
       success: true,
-      message: 'Đã xóa tài khoản @${targetUser.username} (${targetUser.displayName}) và toàn bộ ví, giao dịch liên quan.',
+      message:
+          'Đã xóa tài khoản @${targetUser.username} (${targetUser.displayName}).',
+      deactivated: false,
+    );
+  }
+
+  Future<bool> hasUserFinancialData(String userId) =>
+      _hasUserFinancialData(userId);
+
+  Future<bool> _hasUserFinancialData(String userId) async {
+    final db = DatabaseHelper.instance;
+    final wallet = await db.getWalletByUserId(userId);
+    if (wallet != null &&
+        (wallet.balance != 0 ||
+            wallet.totalEarned != 0 ||
+            wallet.totalSpent != 0)) {
+      return true;
+    }
+    final transactions = await db.getTransactionsByUserId(userId, limit: 1);
+    if (transactions.isNotEmpty) return true;
+    final purchased = await db.getPurchasedChapterIds(userId);
+    return purchased.isNotEmpty;
+  }
+
+  Future<({bool success, String message})> reactivateUser(String userId) async {
+    final index = _allUsers.indexWhere((u) => u.id == userId);
+    if (index == -1) {
+      return (success: false, message: 'Không tìm thấy tài khoản.');
+    }
+    await DatabaseHelper.instance.reactivateUser(userId);
+    _allUsers[index] = _allUsers[index].copyWith(isActive: true);
+    notifyListeners();
+    return (
+      success: true,
+      message: 'Đã kích hoạt lại tài khoản @${_allUsers[index].username}.',
     );
   }
 
@@ -239,7 +353,10 @@ class AuthService extends ChangeNotifier {
     }
 
     if (cleanName.length > 50) {
-      return (success: false, message: 'Tên hiển thị không được vượt quá 50 ký tự.');
+      return (
+        success: false,
+        message: 'Tên hiển thị không được vượt quá 50 ký tự.',
+      );
     }
 
     await DatabaseHelper.instance.updateUserProfile(
@@ -264,7 +381,9 @@ class AuthService extends ChangeNotifier {
   }
 
   /// Cập nhật ảnh đại diện cá nhân (Upload / Change Avatar)
-  Future<({bool success, String message})> updateAvatar(String? avatarUrl) async {
+  Future<({bool success, String message})> updateAvatar(
+    String? avatarUrl,
+  ) async {
     if (isGuest) {
       return (success: false, message: 'Bạn chưa đăng nhập tài khoản!');
     }
@@ -301,11 +420,17 @@ class AuthService extends ChangeNotifier {
     final cleanNew = newPassword.trim();
 
     if (cleanCurrent.isEmpty || cleanNew.isEmpty) {
-      return (success: false, message: 'Vui lòng nhập đầy đủ mật khẩu hiện tại và mật khẩu mới.');
+      return (
+        success: false,
+        message: 'Vui lòng nhập đầy đủ mật khẩu hiện tại và mật khẩu mới.',
+      );
     }
 
     if (_currentUser.password != cleanCurrent) {
-      return (success: false, message: 'Mật khẩu hiện tại không chính xác. Vui lòng kiểm tra lại!');
+      return (
+        success: false,
+        message: 'Mật khẩu hiện tại không chính xác. Vui lòng kiểm tra lại!',
+      );
     }
 
     if (cleanNew.length < 4) {
@@ -313,10 +438,16 @@ class AuthService extends ChangeNotifier {
     }
 
     if (cleanNew == cleanCurrent) {
-      return (success: false, message: 'Mật khẩu mới không được trùng với mật khẩu hiện tại.');
+      return (
+        success: false,
+        message: 'Mật khẩu mới không được trùng với mật khẩu hiện tại.',
+      );
     }
 
-    await DatabaseHelper.instance.updateUserPassword(_currentUser.username, cleanNew);
+    await DatabaseHelper.instance.updateUserPassword(
+      _currentUser.username,
+      cleanNew,
+    );
 
     final updated = _currentUser.copyWith(password: cleanNew);
     _currentUser = updated;
@@ -343,7 +474,10 @@ class AuthService extends ChangeNotifier {
 
     final cleanPassword = confirmPassword.trim();
     if (cleanPassword.isEmpty) {
-      return (success: false, message: 'Vui lòng nhập mật khẩu xác nhận để xóa tài khoản.');
+      return (
+        success: false,
+        message: 'Vui lòng nhập mật khẩu xác nhận để xóa tài khoản.',
+      );
     }
 
     if (_currentUser.password != cleanPassword) {
@@ -352,11 +486,14 @@ class AuthService extends ChangeNotifier {
 
     // Bảo vệ Admin cuối cùng
     if (_currentUser.role == UserRole.admin) {
-      final adminCount = _allUsers.where((u) => u.role == UserRole.admin).length;
+      final adminCount = _allUsers
+          .where((u) => u.role == UserRole.admin && u.isActive)
+          .length;
       if (adminCount <= 1) {
         return (
           success: false,
-          message: 'Bạn là Quản trị viên (Admin) duy nhất của hệ thống! Không thể tự xóa tài khoản. Hãy chỉ định một tài khoản khác làm Admin trước.',
+          message:
+              'Bạn là Quản trị viên (Admin) duy nhất của hệ thống! Không thể tự xóa tài khoản. Hãy chỉ định một tài khoản khác làm Admin trước.',
         );
       }
     }
@@ -364,8 +501,12 @@ class AuthService extends ChangeNotifier {
     final targetId = _currentUser.id;
     final targetName = _currentUser.displayName;
 
-    // Xóa khỏi SQLite (FOREIGN KEY ON DELETE CASCADE sẽ tự xóa ví, giao dịch, bookmarks)
-    await DatabaseHelper.instance.deleteUser(targetId);
+    final hasHistory = await _hasUserFinancialData(targetId);
+    if (hasHistory) {
+      await DatabaseHelper.instance.deactivateUser(targetId);
+    } else {
+      await DatabaseHelper.instance.deleteUser(targetId);
+    }
 
     _allUsers.removeWhere((u) => u.id == targetId);
 
@@ -374,7 +515,9 @@ class AuthService extends ChangeNotifier {
 
     return (
       success: true,
-      message: 'Tài khoản "$targetName" đã được xóa vĩnh viễn khỏi hệ thống.',
+      message: hasHistory
+          ? 'Tài khoản "$targetName" đã được vô hiệu hoá. Lịch sử ví và giao dịch được giữ lại.'
+          : 'Tài khoản "$targetName" đã được xóa khỏi hệ thống.',
     );
   }
 
@@ -384,10 +527,16 @@ class AuthService extends ChangeNotifier {
   DateTime? _resetOtpExpiry;
 
   /// 1. Yêu cầu tạo mã OTP đặt lại mật khẩu cho tài khoản
-  Future<({bool success, String message, String? otp})> requestPasswordReset(String username) async {
+  Future<({bool success, String message, String? otp})> requestPasswordReset(
+    String username,
+  ) async {
     final cleanUsername = username.trim().toLowerCase();
     if (cleanUsername.isEmpty) {
-      return (success: false, message: 'Vui lòng nhập tên đăng nhập.', otp: null);
+      return (
+        success: false,
+        message: 'Vui lòng nhập tên đăng nhập.',
+        otp: null,
+      );
     }
 
     final user = _allUsers.cast<AppUser?>().firstWhere(
@@ -398,7 +547,15 @@ class AuthService extends ChangeNotifier {
     if (user == null) {
       return (
         success: false,
-        message: 'Tài khoản "$username" không tồn tại trong hệ thống. Vui lòng kiểm tra lại!',
+        message:
+            'Tài khoản "$username" không tồn tại trong hệ thống. Vui lòng kiểm tra lại!',
+        otp: null,
+      );
+    }
+    if (!user.isActive) {
+      return (
+        success: false,
+        message: 'Tài khoản đã bị vô hiệu hoá, không thể đặt lại mật khẩu.',
         otp: null,
       );
     }
@@ -428,28 +585,55 @@ class AuthService extends ChangeNotifier {
     final cleanNewPassword = newPassword.trim();
 
     if (cleanUsername.isEmpty || cleanOtp.isEmpty || cleanNewPassword.isEmpty) {
-      return (success: false, message: 'Vui lòng nhập đầy đủ các trường thông tin.');
+      return (
+        success: false,
+        message: 'Vui lòng nhập đầy đủ các trường thông tin.',
+      );
     }
 
     if (cleanNewPassword.length < 4) {
       return (success: false, message: 'Mật khẩu mới phải có ít nhất 4 ký tự.');
     }
 
+    final resetUser = _allUsers.cast<AppUser?>().firstWhere(
+      (u) => u?.username.toLowerCase() == cleanUsername,
+      orElse: () => null,
+    );
+    if (resetUser != null && !resetUser.isActive) {
+      return (
+        success: false,
+        message: 'Tài khoản đã bị vô hiệu hoá, không thể đặt lại mật khẩu.',
+      );
+    }
+
     if (_resetUsername != cleanUsername || _resetOtp != cleanOtp) {
-      return (success: false, message: 'Mã xác thực OTP không chính xác hoặc tên tài khoản không khớp!');
+      return (
+        success: false,
+        message:
+            'Mã xác thực OTP không chính xác hoặc tên tài khoản không khớp!',
+      );
     }
 
     if (_resetOtpExpiry != null && DateTime.now().isAfter(_resetOtpExpiry!)) {
-      return (success: false, message: 'Mã xác thực OTP đã hết hạn (sau 5 phút). Vui lòng yêu cầu mã mới!');
+      return (
+        success: false,
+        message:
+            'Mã xác thực OTP đã hết hạn (sau 5 phút). Vui lòng yêu cầu mã mới!',
+      );
     }
 
-    final index = _allUsers.indexWhere((u) => u.username.toLowerCase() == cleanUsername);
+    final index = _allUsers.indexWhere(
+      (u) => u.username.toLowerCase() == cleanUsername,
+    );
     if (index == -1) {
       return (success: false, message: 'Không tìm thấy tài khoản tương ứng.');
     }
 
     // Cập nhật mật khẩu trong SQLite
-    await DatabaseHelper.instance.updateUserPassword(cleanUsername, cleanNewPassword);
+    await DatabaseHelper.instance.updateUserPassword(
+      cleanUsername,
+      cleanNewPassword,
+    );
 
     final updatedUser = _allUsers[index].copyWith(password: cleanNewPassword);
     _allUsers[index] = updatedUser;
@@ -464,6 +648,10 @@ class AuthService extends ChangeNotifier {
     _resetOtpExpiry = null;
 
     notifyListeners();
-    return (success: true, message: 'Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới.');
+    return (
+      success: true,
+      message:
+          'Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới.',
+    );
   }
 }

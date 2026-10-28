@@ -1,6 +1,11 @@
 using Microsoft.Data.Sqlite;
 
 var builder = WebApplication.CreateBuilder(args);
+if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_URLS"))
+    && !args.Any(argument => argument.StartsWith("--urls", StringComparison.OrdinalIgnoreCase)))
+{
+    builder.WebHost.UseUrls("http://127.0.0.1:5080");
+}
 var dbPath = Path.Combine(builder.Environment.ContentRootPath, "manga_management.db");
 var connectionString = new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
@@ -9,6 +14,11 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
 var app = builder.Build();
 app.UseCors();
 await InitializeDatabase(connectionString);
+
+bool CanManage(HttpRequest request) =>
+    request.Headers["X-User-Role"].ToString().ToLowerInvariant() is "staff" or "admin";
+bool IsAdmin(HttpRequest request) =>
+    request.Headers["X-User-Role"].ToString().Equals("admin", StringComparison.OrdinalIgnoreCase);
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", database = "sqlite" }));
 
@@ -234,6 +244,29 @@ app.MapGet("/api/mangas/{id}/chapters", async (string id, HttpRequest request) =
     return Results.Ok(chapters);
 });
 
+app.MapGet("/api/statistics/catalog", async (HttpRequest request) =>
+{
+    if (!IsAdmin(request)) return Results.StatusCode(403);
+    await using var db = await OpenDb(connectionString);
+    async Task<int> Count(string sql)
+    {
+        await using var command = db.CreateCommand();
+        command.CommandText = sql;
+        var value = await command.ExecuteScalarAsync();
+        return Convert.ToInt32(value);
+    }
+    return Results.Ok(new
+    {
+        totalMangas = await Count("SELECT COUNT(*) FROM mangas"),
+        hiddenMangas = await Count("SELECT COUNT(*) FROM mangas WHERE IFNULL(is_hidden,0)=1"),
+        totalChapters = await Count("SELECT COUNT(*) FROM chapters WHERE is_deleted=0"),
+        lockedChapters = await Count("SELECT COUNT(*) FROM chapters WHERE is_deleted=0 AND is_locked=1 AND price>0"),
+        totalGenres = await Count("SELECT COUNT(*) FROM genres"),
+        source = "aspnet-catalog",
+        note = "X-User-Role chỉ phục vụ local mock, không phải cơ chế phân quyền production."
+    });
+});
+
 app.Run();
 
 static async Task<SqliteConnection> OpenDb(string connectionString)
@@ -311,9 +344,6 @@ static async Task InitializeDatabase(string connectionString)
         await seed.ExecuteNonQueryAsync();
     }
 }
-
-static bool CanManage(HttpRequest request) => request.Headers["X-User-Role"].ToString().ToLowerInvariant() is "staff" or "admin";
-static bool IsAdmin(HttpRequest request) => request.Headers["X-User-Role"].ToString().Equals("admin", StringComparison.OrdinalIgnoreCase);
 
 static string? ValidateManga(MangaInput manga)
 {
