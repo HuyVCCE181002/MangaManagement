@@ -54,9 +54,11 @@ enum UserRole {
   bool get canDeleteChapter => this == UserRole.staff;
   bool get canDeleteManga => this == UserRole.admin;
   bool get canManageUsers => this == UserRole.admin;
+  bool get canViewAdminDashboard => this == UserRole.admin;
   bool get canAccessWallet => this != UserRole.guest;
   bool get canManageCoinPackages => this == UserRole.admin;
-  bool get canPushNotification => this == UserRole.admin || this == UserRole.staff;
+  bool get canPushNotification =>
+      this == UserRole.admin || this == UserRole.staff;
 }
 
 class AppUser {
@@ -66,6 +68,7 @@ class AppUser {
   final String password;
   final UserRole role;
   final String? avatarUrl;
+  final bool isActive;
 
   const AppUser({
     required this.id,
@@ -74,6 +77,7 @@ class AppUser {
     required this.password,
     required this.role,
     this.avatarUrl,
+    this.isActive = true,
   });
 
   bool get isGuest => role == UserRole.guest;
@@ -86,6 +90,7 @@ class AppUser {
       'password': password,
       'role': role.name,
       'avatarUrl': avatarUrl,
+      'isActive': isActive,
     };
   }
 
@@ -102,6 +107,7 @@ class AppUser {
       'password': password,
       'role': role.name,
       'avatar_url': avatarUrl,
+      'is_active': isActive ? 1 : 0,
     };
   }
 
@@ -117,6 +123,10 @@ class AppUser {
         orElse: () => UserRole.reader,
       ),
       avatarUrl: (map['avatar_url'] ?? map['avatarUrl']) as String?,
+      isActive:
+          map['is_active'] != 0 &&
+          map['is_active'] != false &&
+          map['isActive'] != false,
     );
   }
 
@@ -127,6 +137,7 @@ class AppUser {
     String? password,
     UserRole? role,
     String? avatarUrl,
+    bool? isActive,
   }) {
     return AppUser(
       id: id ?? this.id,
@@ -135,6 +146,7 @@ class AppUser {
       password: password ?? this.password,
       role: role ?? this.role,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      isActive: isActive ?? this.isActive,
     );
   }
 

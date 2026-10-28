@@ -163,7 +163,7 @@ void main() {
         package: pkg, promoCode: '', amount: pkg.price.round(), status: status,
         createdAt: now, expiresAt: now.add(const Duration(minutes: 10)),
         paidAt: status == 'completed' ? now : null,
-        bankBin: '970403', accountNumber: '070118746463', accountName: 'NGO VIET TRINH',
+        bankBin: 'STB', accountNumber: '070118746463', accountName: 'NGO VIET TRINH',
       );
       final pending = await helper.cacheServerPayment('reader_1', receipt('pending'));
       expect(pending.status, TransactionStatus.pending);

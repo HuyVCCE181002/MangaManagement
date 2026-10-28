@@ -1,11 +1,14 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/payment_order.dart';
 import '../models/user.dart';
 
 class PaymentApiException implements Exception {
   final String message;
-  const PaymentApiException(this.message);
+  final int? statusCode;
+  const PaymentApiException(this.message, {this.statusCode});
+  bool get isUnavailable => statusCode == 503;
   @override
   String toString() => message;
 }
@@ -14,10 +17,21 @@ class PaymentApiException implements Exception {
 class PaymentVerificationService {
   static final instance = PaymentVerificationService._internal();
   PaymentVerificationService._internal();
-  static const baseUrl = String.fromEnvironment(
+  static const configuredBaseUrl = String.fromEnvironment(
     'PAYMENT_BACKEND_URL',
     defaultValue: 'http://127.0.0.1:8787',
   );
+
+  /// Android emulator không thấy 127.0.0.1 của máy host — map sang 10.0.2.2.
+  static String get baseUrl {
+    if (kIsWeb) return configuredBaseUrl;
+    final uri = Uri.parse(configuredBaseUrl);
+    if (defaultTargetPlatform == TargetPlatform.android &&
+        (uri.host == '127.0.0.1' || uri.host == 'localhost')) {
+      return uri.replace(host: '10.0.2.2').toString();
+    }
+    return configuredBaseUrl;
+  }
   String? _token;
   String? _username;
   String? _password;
@@ -33,13 +47,35 @@ class PaymentVerificationService {
   }
 
   Map<String, dynamic> _decode(http.Response response) {
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    Map<String, dynamic> body = const {};
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) body = decoded;
+    } catch (_) {}
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw PaymentApiException(
         body['error'] as String? ?? 'Không kết nối được backend thanh toán.',
+        statusCode: response.statusCode,
       );
     }
     return body;
+  }
+
+  /// `ready=true` khi SePay webhook đã bật. 503 khi tạo đơn là trạng thái
+  /// cấu hình, không phải lỗi mạng.
+  Future<({bool reachable, bool ready})> health() async {
+    try {
+      final response = await http
+          .get(_uri('/health'))
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode != 200) {
+        return (reachable: true, ready: false);
+      }
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return (reachable: true, ready: body['ready'] == true);
+    } catch (_) {
+      return (reachable: false, ready: false);
+    }
   }
 
   Future<void> _authenticate(AppUser user) async {

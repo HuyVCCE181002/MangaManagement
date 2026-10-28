@@ -1,4 +1,6 @@
 import '../models/chapter.dart';
+import '../models/user.dart';
+import 'auth_service.dart';
 import 'backend_api_service.dart';
 import 'database_helper.dart';
 
@@ -19,18 +21,54 @@ class ChapterService {
     String mangaId, {
     bool forceRefresh = false,
   }) async {
-    final remote = await BackendApiService.instance.getChapters(mangaId);
+    List<Chapter>? remote;
+    try {
+      remote = await BackendApiService.instance.getChapters(mangaId);
+    } catch (_) {
+      remote = null;
+    }
+    List<Chapter> chapters;
     if (remote != null) {
-      _mangaChaptersCache[mangaId] = remote;
-      return List.from(remote);
+      chapters = remote;
+    } else if (_mangaChaptersCache.containsKey(mangaId) && !forceRefresh) {
+      chapters = List.from(_mangaChaptersCache[mangaId]!);
+    } else {
+      chapters = await DatabaseHelper.instance.getChaptersByMangaId(mangaId);
     }
-    if (_mangaChaptersCache.containsKey(mangaId) && !forceRefresh) {
-      return List.from(_mangaChaptersCache[mangaId]!);
-    }
-
-    final chapters = await DatabaseHelper.instance.getChaptersByMangaId(mangaId);
+    chapters = await _applyContentPolicy(chapters);
     _mangaChaptersCache[mangaId] = chapters;
     return List.from(chapters);
+  }
+
+  Future<List<Chapter>> _applyContentPolicy(List<Chapter> chapters) async {
+    final user = AuthService.instance.currentUser;
+    if (user.role == UserRole.staff || user.role == UserRole.admin) {
+      return chapters;
+    }
+    Set<String> purchased = {};
+    if (!user.isGuest) {
+      purchased = await getPurchasedChapterIds(user.id);
+    }
+    final result = <Chapter>[];
+    for (final chapter in chapters) {
+      final unlocked =
+          !chapter.isLocked ||
+          chapter.price <= 0 ||
+          purchased.contains(chapter.id);
+      if (!unlocked) {
+        result.add(chapter.copyWith(contents: const []));
+        continue;
+      }
+      if (chapter.contents.isEmpty) {
+        final local = await DatabaseHelper.instance.getChapterById(chapter.id);
+        if (local != null && local.contents.isNotEmpty) {
+          result.add(chapter.copyWith(contents: local.contents));
+          continue;
+        }
+      }
+      result.add(chapter);
+    }
+    return result;
   }
 
   /// Lấy thông tin chi tiết một chapter theo ID
@@ -123,10 +161,13 @@ class ChapterService {
     if (_userPurchasedCache.containsKey(userId)) {
       return _userPurchasedCache[userId]!.contains(chapterId);
     }
-    return await DatabaseHelper.instance.isChapterPurchasedByUser(userId, chapterId);
+    return await DatabaseHelper.instance.isChapterPurchasedByUser(
+      userId,
+      chapterId,
+    );
   }
 
-  /// Thực hiện mua và mở khóa chương cho người dùng
+  /// Ghi nhận quyền sở hữu sau khi mở khóa thành công (không trừ xu lần nữa).
   Future<void> purchaseChapter(String userId, String chapterId) async {
     await DatabaseHelper.instance.purchaseChapter(userId, chapterId);
     if (_userPurchasedCache.containsKey(userId)) {

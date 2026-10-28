@@ -54,6 +54,8 @@ flutter run -d chrome
 
 Flutter web/Windows gọi `http://localhost:5080/api`; Android emulator gọi `http://10.0.2.2:5080/api`. Nếu backend không chạy, các nghiệp vụ manga/thể loại/chapter đọc tiếp tục dùng SQLite cục bộ.
 
+Cổng dịch vụ: `5080` là ASP.NET Core manga API (mặc định bind `127.0.0.1:5080` qua `Program.cs`/`launchSettings.json`, override bằng `--urls` hoặc `ASPNETCORE_URLS`/`BACKEND_API_URL`); `8787` là payment backend Node (`backend/server.js`, cấu hình trong `backend/.env`, override bằng `--dart-define=PAYMENT_BACKEND_URL=`); `8085` là WebSocket thông báo chạy trong app (`NotificationServerService.startServer`, override bằng `--dart-define=NOTIFICATION_WS_URL=`). Trên Flutter web không mở socket `ws://127.0.0.1:8085` mà dùng web bus trong bộ nhớ, nên `ERR_CONNECTION_REFUSED` trên web là bình thường. Khi payment backend trả `503` ở `POST /payments/orders`, app hiển thị QR offline kèm hướng dẫn bật `PAYMENT_RECEIPTS_ENABLED=true` + webhook SePay; app không tự cộng xu khi chưa có biên lai server xác minh.
+
 Tài khoản demo cục bộ: `staff / staff123` để quản lý thể loại và manga; `admin / admin123` có thể xóa manga vĩnh viễn. Staff ẩn/hiện truyện, Admin xóa vĩnh viễn. Backend demo nhận vai trò qua header nội bộ `X-User-Role`; cơ chế này chỉ phục vụ bài tập/local mock, không thay cho xác thực khi triển khai thật.
 
 ## Phạm vi backlog của Lê Huỳnh Thiện Hưng

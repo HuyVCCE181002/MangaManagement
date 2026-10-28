@@ -50,7 +50,10 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
   Future<void> _loadBookmark() async {
     final user = AuthService.instance.currentUser;
     if (!user.isGuest) {
-      final bookmark = await DatabaseHelper.instance.getBookmark(user.id, _currentChapter.mangaId);
+      final bookmark = await DatabaseHelper.instance.getBookmark(
+        user.id,
+        _currentChapter.mangaId,
+      );
       setState(() {
         _currentBookmark = bookmark;
       });
@@ -66,7 +69,11 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
       return;
     }
 
-    await DatabaseHelper.instance.toggleBookmark(user.id, _currentChapter.mangaId, _currentChapter.id);
+    await DatabaseHelper.instance.toggleBookmark(
+      user.id,
+      _currentChapter.mangaId,
+      _currentChapter.id,
+    );
     await _loadBookmark(); // Tải lại bookmark để update icon
   }
 
@@ -97,8 +104,11 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
   void _goToChapter(Chapter target) {
     final currentUser = AuthService.instance.currentUser;
     final bool isPurchased = _purchasedChapterIds.contains(target.id);
-    final bool isStaffOrAdmin = currentUser.role == UserRole.staff || currentUser.role == UserRole.admin;
-    final bool isUnlocked = !target.isLocked || target.price <= 0 || isPurchased || isStaffOrAdmin;
+    final bool isStaffOrAdmin =
+        currentUser.role == UserRole.staff ||
+        currentUser.role == UserRole.admin;
+    final bool isUnlocked =
+        !target.isLocked || target.price <= 0 || isPurchased || isStaffOrAdmin;
 
     if (!isUnlocked) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -128,9 +138,16 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final currentUser = AuthService.instance.currentUser;
     final isStaff = currentUser.role == UserRole.staff;
+    final canRead =
+        !(_currentChapter.isLocked && _currentChapter.price > 0) ||
+        _purchasedChapterIds.contains(_currentChapter.id) ||
+        currentUser.role == UserRole.staff ||
+        currentUser.role == UserRole.admin;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF10121A) : const Color(0xFFF0F2F6),
+      backgroundColor: isDark
+          ? const Color(0xFF10121A)
+          : const Color(0xFFF0F2F6),
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -145,7 +162,9 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
               '${_currentChapter.contents.length} trang ảnh ${isStaff ? "• Chế độ Staff" : ""}',
               style: TextStyle(
                 fontSize: 12,
-                color: isStaff ? const Color(0xFF0984E3) : theme.colorScheme.onSurfaceVariant,
+                color: isStaff
+                    ? const Color(0xFF0984E3)
+                    : theme.colorScheme.onSurfaceVariant,
                 fontWeight: isStaff ? FontWeight.bold : FontWeight.normal,
               ),
             ),
@@ -157,11 +176,11 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
             tooltip: 'Bookmark',
             icon: Icon(
               _currentBookmark?.chapterId == _currentChapter.id
-                ? Icons.bookmark
-                : Icons.bookmark_border,
+                  ? Icons.bookmark
+                  : Icons.bookmark_border,
               color: _currentBookmark?.chapterId == _currentChapter.id
-                ? Colors.amber
-                : Colors.blue,
+                  ? Colors.amber
+                  : Colors.blue,
             ),
             onPressed: _toggleBookmark,
           ),
@@ -170,7 +189,10 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
           if (currentUser.role.canEditChapter)
             IconButton(
               tooltip: 'Chỉnh sửa chương này (Staff)',
-              icon: const Icon(Icons.edit_note_rounded, color: Color(0xFF0984E3)),
+              icon: const Icon(
+                Icons.edit_note_rounded,
+                color: Color(0xFF0984E3),
+              ),
               onPressed: () async {
                 final updated = await Navigator.push<bool>(
                   context,
@@ -188,7 +210,41 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
             ),
         ],
       ),
-      body: _currentChapter.contents.isEmpty
+      body: !canRead
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.lock_rounded,
+                      size: 72,
+                      color: Color(0xFFE17055),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Chương ${_currentChapter.chapterNumber} đang bị khóa',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Giá ${_currentChapter.price.round()} xu. Mở khóa từ trang chi tiết truyện để đọc.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : _currentChapter.contents.isEmpty
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -196,12 +252,17 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
                   Icon(
                     Icons.image_not_supported_outlined,
                     size: 64,
-                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.5,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'Chương này chưa có trang hình ảnh nào.',
-                    style: TextStyle(fontSize: 16, color: theme.colorScheme.onSurfaceVariant),
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -209,7 +270,9 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
           : ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: _currentChapter.contents.length + 1, // +1 for footer navigation
+              itemCount:
+                  _currentChapter.contents.length +
+                  1, // +1 for footer navigation
               itemBuilder: (context, index) {
                 if (index == _currentChapter.contents.length) {
                   // Thanh điều hướng Previous/Next Chapter ở cuối trang
@@ -229,10 +292,14 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
                         if (loadingProgress == null) return child;
                         final total = loadingProgress.expectedTotalBytes;
                         final loaded = loadingProgress.cumulativeBytesLoaded;
-                        final percent = (total != null && total > 0) ? (loaded / total) : null;
+                        final percent = (total != null && total > 0)
+                            ? (loaded / total)
+                            : null;
                         return Container(
                           height: 380,
-                          color: isDark ? const Color(0xFF161922) : const Color(0xFFE8EBF2),
+                          color: isDark
+                              ? const Color(0xFF161922)
+                              : const Color(0xFFE8EBF2),
                           child: Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -249,7 +316,10 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
                                 const SizedBox(height: 10),
                                 Text(
                                   'Đang tải trang ${index + 1}...',
-                                  style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurfaceVariant),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
                                 ),
                               ],
                             ),
@@ -258,21 +328,33 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
                       },
                       errorBuilder: (context, error, stackTrace) => Container(
                         height: 240,
-                        color: isDark ? const Color(0xFF1E212D) : const Color(0xFFEDE9FE),
+                        color: isDark
+                            ? const Color(0xFF1E212D)
+                            : const Color(0xFFEDE9FE),
                         child: Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.broken_image_rounded, size: 48, color: Colors.grey),
+                              const Icon(
+                                Icons.broken_image_rounded,
+                                size: 48,
+                                color: Colors.grey,
+                              ),
                               const SizedBox(height: 8),
                               Text(
                                 'Không tải được trang ${index + 1}',
-                                style: const TextStyle(color: Colors.grey, fontSize: 13),
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 13,
+                                ),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 imageUrl,
-                                style: const TextStyle(color: Colors.grey, fontSize: 10),
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 10,
+                                ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -320,13 +402,17 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                           side: BorderSide(
-                            color: isDark ? const Color(0xFF2E3440) : const Color(0xFFE2E5EE),
+                            color: isDark
+                                ? const Color(0xFF2E3440)
+                                : const Color(0xFFE2E5EE),
                           ),
                         ),
                       ),
                       icon: const Icon(Icons.arrow_back_rounded, size: 18),
                       label: Text(
-                        prev != null ? 'Chap ${prev.chapterNumber}' : 'Đầu truyện',
+                        prev != null
+                            ? 'Chap ${prev.chapterNumber}'
+                            : 'Đầu truyện',
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       onPressed: prev != null ? () => _goToChapter(prev) : null,
@@ -339,10 +425,14 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
                         backgroundColor: const Color(0xFF6C5CE7),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       label: Text(
-                        next != null ? 'Chap ${next.chapterNumber}' : 'Chương mới nhất',
+                        next != null
+                            ? 'Chap ${next.chapterNumber}'
+                            : 'Chương mới nhất',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       icon: const Icon(Icons.arrow_forward_rounded, size: 18),
